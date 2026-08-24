@@ -24,7 +24,7 @@ const (
 	userSyslogAccessAttr = "syslog_access"
 	userSuperuserAttr    = "superuser"
 
-	// defaults
+	// defaults.
 	defaultUserSyslogAccess          = "RESTRICTED"
 	defaultUserSuperuserSyslogAccess = "UNRESTRICTED"
 )
@@ -35,7 +35,7 @@ const (
 // See https://docs.aws.amazon.com/redshift/latest/APIReference/API_GetClusterCredentials.html
 var temporaryCredentialsUsernamePrefixRegexp = regexp.MustCompile("^(?:IAMA?:)")
 
-// Resolve the "real" username by stripping the temporary credentials prefix
+// Resolve the "real" username by stripping the temporary credentials prefix.
 func permanentUsername(username string) string {
 	return temporaryCredentialsUsernamePrefixRegexp.ReplaceAllString(username, "")
 }
@@ -45,15 +45,14 @@ func redshiftUser() *schema.Resource {
 		Description: `
 Amazon Redshift user accounts can only be created and dropped by a database superuser. Users are authenticated when they login to Amazon Redshift. They can own databases and database objects (for example, tables) and can grant privileges on those objects to users, groups, and schemas to control who has access to which object. Users with CREATE DATABASE rights can create databases and grant privileges to those databases. Superusers have database ownership privileges for all databases.
 `,
-		Create: RedshiftResourceFunc(resourceRedshiftUserCreate),
-		Read:   RedshiftResourceFunc(resourceRedshiftUserRead),
-		Update: RedshiftResourceFunc(resourceRedshiftUserUpdate),
-		Delete: RedshiftResourceFunc(
+		CreateContext: RedshiftResourceFuncContext(resourceRedshiftUserCreate),
+		ReadContext:   RedshiftResourceFuncContext(resourceRedshiftUserRead),
+		UpdateContext: RedshiftResourceFuncContext(resourceRedshiftUserUpdate),
+		DeleteContext: RedshiftResourceFuncContext(
 			RedshiftResourceRetryOnPQErrors(resourceRedshiftUserDelete),
 		),
-		Exists: RedshiftResourceExistsFunc(resourceRedshiftUserExists),
 		Importer: &schema.ResourceImporter{
-			State: schema.ImportStatePassthrough,
+			StateContext: schema.ImportStatePassthroughContext,
 		},
 		CustomizeDiff: func(_ context.Context, d *schema.ResourceDiff, p interface{}) error {
 			isSuperuser := d.Get(userSuperuserAttr).(bool)
@@ -61,7 +60,7 @@ Amazon Redshift user accounts can only be created and dropped by a database supe
 
 			password, hasPassword := d.GetOk(userPasswordAttr)
 			if isSuperuser && isPasswordKnown && (!hasPassword || password.(string) == "") {
-				return fmt.Errorf("Users that are superusers must define a password.")
+				return fmt.Errorf("users that are superusers must define a password")
 			}
 
 			return nil
@@ -127,22 +126,8 @@ Amazon Redshift user accounts can only be created and dropped by a database supe
 	}
 }
 
-func resourceRedshiftUserExists(db *DBConnection, d *schema.ResourceData) (bool, error) {
-	var name string
-	err := db.QueryRow("SELECT usename FROM pg_user_info WHERE usesysid = $1", d.Id()).Scan(&name)
-
-	switch {
-	case err == sql.ErrNoRows:
-		return false, nil
-	case err != nil:
-		return false, err
-	}
-
-	return true, nil
-}
-
 func resourceRedshiftUserCreate(db *DBConnection, d *schema.ResourceData) error {
-	tx, err := startTransaction(db.client, "")
+	tx, err := startTransaction(db.client)
 	if err != nil {
 		return err
 	}
@@ -195,17 +180,17 @@ func resourceRedshiftUserCreate(db *DBConnection, d *schema.ResourceData) error 
 
 		val := v.(string)
 		if val != "" {
-			switch {
-			case opt.hclKey == userPasswordAttr:
+			switch opt.hclKey {
+			case userPasswordAttr:
 				createOpts = append(createOpts, fmt.Sprintf("%s '%s'", opt.sqlKey, md5Password(userName, val)))
-			case opt.hclKey == userValidUntilAttr:
+			case userValidUntilAttr:
 				switch {
 				case v.(string) == "", strings.ToLower(v.(string)) == "infinity":
 					createOpts = append(createOpts, fmt.Sprintf("%s '%s'", opt.sqlKey, "infinity"))
 				default:
 					createOpts = append(createOpts, fmt.Sprintf("%s '%s'", opt.sqlKey, pqQuoteLiteral(val)))
 				}
-			case opt.hclKey == userSyslogAccessAttr:
+			case userSyslogAccessAttr:
 				createOpts = append(createOpts, fmt.Sprintf("%s %s", opt.sqlKey, val))
 			default:
 				createOpts = append(createOpts, fmt.Sprintf("%s %s", opt.sqlKey, pq.QuoteIdentifier(val)))
@@ -277,7 +262,6 @@ func resourceRedshiftUserReadImpl(db *DBConnection, d *schema.ResourceData) erro
 		userInfoTable = "svl_user_info"
 	}
 
-
 	values := []interface{}{
 		&userName,
 		&userCreateDB,
@@ -296,7 +280,7 @@ func resourceRedshiftUserReadImpl(db *DBConnection, d *schema.ResourceData) erro
 		d.SetId("")
 		return nil
 	case err != nil:
-		return fmt.Errorf("Error reading User: %w", err)
+		return fmt.Errorf("error reading user: %w", err)
 	}
 
 	err = db.QueryRow("SELECT COALESCE(valuntil, 'infinity') FROM pg_user_info WHERE usesysid = $1", useSysID).Scan(&userValidUntil)
@@ -306,7 +290,7 @@ func resourceRedshiftUserReadImpl(db *DBConnection, d *schema.ResourceData) erro
 		d.SetId("")
 		return nil
 	case err != nil:
-		return fmt.Errorf("Error reading User: %w", err)
+		return fmt.Errorf("error reading user: %w", err)
 	}
 	userConnLimitNumber := -1
 	if userConnLimit != "UNLIMITED" {
@@ -315,12 +299,24 @@ func resourceRedshiftUserReadImpl(db *DBConnection, d *schema.ResourceData) erro
 		}
 	}
 
-	d.Set(userNameAttr, userName)
-	d.Set(userCreateDBAttr, userCreateDB)
-	d.Set(userSuperuserAttr, userSuperuser)
-	d.Set(userSyslogAccessAttr, userSyslogAccess)
-	d.Set(userConnLimitAttr, userConnLimitNumber)
-	d.Set(userValidUntilAttr, userValidUntil)
+	if err := d.Set(userNameAttr, userName); err != nil {
+		return err
+	}
+	if err := d.Set(userCreateDBAttr, userCreateDB); err != nil {
+		return err
+	}
+	if err := d.Set(userSuperuserAttr, userSuperuser); err != nil {
+		return err
+	}
+	if err := d.Set(userSyslogAccessAttr, userSyslogAccess); err != nil {
+		return err
+	}
+	if err := d.Set(userConnLimitAttr, userConnLimitNumber); err != nil {
+		return err
+	}
+	if err := d.Set(userValidUntilAttr, userValidUntil); err != nil {
+		return err
+	}
 
 	return nil
 }
@@ -330,7 +326,7 @@ func resourceRedshiftUserDelete(db *DBConnection, d *schema.ResourceData) error 
 	userName := d.Get(userNameAttr).(string)
 	newOwnerName := permanentUsername(db.client.config.Username)
 
-	tx, err := startTransaction(db.client, "")
+	tx, err := startTransaction(db.client)
 	if err != nil {
 		return err
 	}
@@ -378,7 +374,7 @@ func resourceRedshiftUserDelete(db *DBConnection, d *schema.ResourceData) error 
 	if err != nil {
 		return err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var reassignStatements []string
 	for rows.Next() {
@@ -401,7 +397,7 @@ func resourceRedshiftUserDelete(db *DBConnection, d *schema.ResourceData) error 
 	if err != nil {
 		return err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	for rows.Next() {
 		var schemaName string
@@ -432,7 +428,7 @@ func resourceRedshiftUserDelete(db *DBConnection, d *schema.ResourceData) error 
 }
 
 func resourceRedshiftUserUpdate(db *DBConnection, d *schema.ResourceData) error {
-	tx, err := startTransaction(db.client, "")
+	tx, err := startTransaction(db.client)
 	if err != nil {
 		return err
 	}
@@ -482,12 +478,12 @@ func setUserName(tx *sql.Tx, d *schema.ResourceData) error {
 	newValue := newRaw.(string)
 
 	if newValue == "" {
-		return fmt.Errorf("Error setting user name to an empty string")
+		return fmt.Errorf("error setting user name to an empty string")
 	}
 
 	sql := fmt.Sprintf("ALTER USER %s RENAME TO %s", pq.QuoteIdentifier(oldValue), pq.QuoteIdentifier(newValue))
 	if _, err := tx.Exec(sql); err != nil {
-		return fmt.Errorf("Error updating User NAME: %w", err)
+		return fmt.Errorf("error updating User NAME: %w", err)
 	}
 
 	return nil
@@ -508,7 +504,7 @@ func setUserPassword(tx *sql.Tx, d *schema.ResourceData) error {
 
 	sql := fmt.Sprintf("ALTER USER %s %s", pq.QuoteIdentifier(userName), passwdTok)
 	if _, err := tx.Exec(sql); err != nil {
-		return fmt.Errorf("Error updating user password: %w", err)
+		return fmt.Errorf("error updating user password: %w", err)
 	}
 	return nil
 }
@@ -522,7 +518,7 @@ func setUserConnLimit(tx *sql.Tx, d *schema.ResourceData) error {
 	userName := d.Get(userNameAttr).(string)
 	sql := fmt.Sprintf("ALTER USER %s CONNECTION LIMIT %d", pq.QuoteIdentifier(userName), connLimit)
 	if _, err := tx.Exec(sql); err != nil {
-		return fmt.Errorf("Error updating user CONNECTION LIMIT: %w", err)
+		return fmt.Errorf("error updating user CONNECTION LIMIT: %w", err)
 	}
 
 	return nil
@@ -541,7 +537,7 @@ func setUserCreateDB(tx *sql.Tx, d *schema.ResourceData) error {
 	userName := d.Get(userNameAttr).(string)
 	sql := fmt.Sprintf("ALTER USER %s WITH %s", pq.QuoteIdentifier(userName), tok)
 	if _, err := tx.Exec(sql); err != nil {
-		return fmt.Errorf("Error updating user CREATEDB: %w", err)
+		return fmt.Errorf("error updating user CREATEDB: %w", err)
 	}
 
 	return nil
@@ -560,7 +556,7 @@ func setUserSuperuser(tx *sql.Tx, d *schema.ResourceData) error {
 	userName := d.Get(userNameAttr).(string)
 	sql := fmt.Sprintf("ALTER USER %s WITH %s", pq.QuoteIdentifier(userName), tok)
 	if _, err := tx.Exec(sql); err != nil {
-		return fmt.Errorf("Error updating user SUPERUSER: %w", err)
+		return fmt.Errorf("error updating user SUPERUSER: %w", err)
 	}
 
 	return nil
@@ -581,7 +577,7 @@ func setUserValidUntil(tx *sql.Tx, d *schema.ResourceData) error {
 	userName := d.Get(userNameAttr).(string)
 	sql := fmt.Sprintf("ALTER USER %s VALID UNTIL '%s'", pq.QuoteIdentifier(userName), pqQuoteLiteral(validUntil))
 	if _, err := tx.Exec(sql); err != nil {
-		return fmt.Errorf("Error updating user VALID UNTIL: %w", err)
+		return fmt.Errorf("error updating user VALID UNTIL: %w", err)
 	}
 
 	return nil
@@ -605,7 +601,7 @@ func setUserSyslogAccess(tx *sql.Tx, d *schema.ResourceData) error {
 	userName := d.Get(userNameAttr).(string)
 	sql := fmt.Sprintf("ALTER USER %s WITH SYSLOG ACCESS %s", pq.QuoteIdentifier(userName), syslogAccessComputed)
 	if _, err := tx.Exec(sql); err != nil {
-		return fmt.Errorf("Error updating user SYSLOG ACCESS: %w", err)
+		return fmt.Errorf("error updating user SYSLOG ACCESS: %w", err)
 	}
 
 	return nil
@@ -624,7 +620,7 @@ func getDefaultSyslogAccess(d *schema.ResourceData) string {
 // the process is:
 // 1. concatenate the password and username
 // 2. convert the concatenated string to an md5 hash in hex format
-// 3. prefix the result with 'md5' (unquoted)
+// 3. prefix the result with 'md5' (unquoted).
 func md5Password(userName string, password string) string {
 	return fmt.Sprintf("md5%x", md5.Sum([]byte(fmt.Sprintf("%s%s", password, userName))))
 }

@@ -169,7 +169,7 @@ var dbGroupAcceptableCharacters = regexp.MustCompile("[a-z1-9_+.@-]{1,64}")
 var startsWithLetter = regexp.MustCompile("[a-zA-Z].*")
 
 // Validation rules are specified at https://docs.aws.amazon.com/redshift/latest/APIReference/API_GetClusterCredentials.html
-// admittedly, some of these are a bit redundant
+// admittedly, some of these are a bit redundant.
 var dbGroupValidate = validation.All(
 	validation.StringLenBetween(1, 64),
 	validation.StringMatch(dbGroupAcceptableCharacters, "Must contain only lowercase letters, numbers, underscore, plus sign, period (dot), at symbol (@), or hyphen."),

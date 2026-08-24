@@ -17,9 +17,9 @@ import (
 
 func TestAccRedshiftUser_Basic(t *testing.T) {
 	resource.Test(t, resource.TestCase{
-		PreCheck:     func() { testAccPreCheck(t) },
-		Providers:    testAccProviders,
-		CheckDestroy: testAccCheckRedshiftUserDestroy,
+		PreCheck:          func() { testAccPreCheck(t) },
+		ProviderFactories: testAccProviderFactories,
+		CheckDestroy:      testAccCheckRedshiftUserDestroy,
 		Steps: []resource.TestStep{
 			{
 				Config: testAccRedshiftUserConfig,
@@ -77,9 +77,9 @@ resource "redshift_user" "update_user" {
 }
 `
 	resource.Test(t, resource.TestCase{
-		PreCheck:     func() { testAccPreCheck(t) },
-		Providers:    testAccProviders,
-		CheckDestroy: testAccCheckRedshiftUserDestroy,
+		PreCheck:          func() { testAccPreCheck(t) },
+		ProviderFactories: testAccProviderFactories,
+		CheckDestroy:      testAccCheckRedshiftUserDestroy,
 		Steps: []resource.TestStep{
 			{
 				Config: configCreate,
@@ -141,9 +141,9 @@ resource "redshift_user" "update_superuser" {
 }
 `
 	resource.Test(t, resource.TestCase{
-		PreCheck:     func() { testAccPreCheck(t) },
-		Providers:    testAccProviders,
-		CheckDestroy: testAccCheckRedshiftUserDestroy,
+		PreCheck:          func() { testAccPreCheck(t) },
+		ProviderFactories: testAccProviderFactories,
+		CheckDestroy:      testAccCheckRedshiftUserDestroy,
 		Steps: []resource.TestStep{
 			{
 				Config: configCreate,
@@ -196,9 +196,9 @@ resource "redshift_user" "superuser" {
 `, userName)
 
 	resource.Test(t, resource.TestCase{
-		PreCheck:     func() { testAccPreCheck(t) },
-		Providers:    testAccProviders,
-		CheckDestroy: testAccCheckRedshiftUserDestroy,
+		PreCheck:          func() { testAccPreCheck(t) },
+		ProviderFactories: testAccProviderFactories,
+		CheckDestroy:      testAccCheckRedshiftUserDestroy,
 		Steps: []resource.TestStep{
 			{
 				Config:      config,
@@ -218,9 +218,9 @@ resource "redshift_user" "superuser" {
 `, userName)
 
 	resource.Test(t, resource.TestCase{
-		PreCheck:     func() { testAccPreCheck(t) },
-		Providers:    testAccProviders,
-		CheckDestroy: testAccCheckRedshiftUserDestroy,
+		PreCheck:          func() { testAccPreCheck(t) },
+		ProviderFactories: testAccProviderFactories,
+		CheckDestroy:      testAccCheckRedshiftUserDestroy,
 		Steps: []resource.TestStep{
 			{
 				Config: config,
@@ -235,7 +235,7 @@ func TestAccRedshiftUser_SuperuserUnknownPassword(t *testing.T) {
 resource "redshift_user" "superuser" {
   name = %[1]q
   superuser = true
-	password  = unknown_string.password.result 
+	password  = unknown_string.password.result
 }
 
 resource "unknown_string" "password" {}
@@ -255,8 +255,7 @@ resource "unknown_string" "password" {}
 				},
 				Create: func(d *schema.ResourceData, meta interface{}) error {
 					d.SetId("test")
-					d.Set("result", "TestPassword123")
-					return nil
+					return d.Set("result", "TestPassword123")
 				},
 				Read: func(d *schema.ResourceData, meta interface{}) error {
 					return nil
@@ -268,15 +267,15 @@ resource "unknown_string" "password" {}
 		},
 	}
 
-	providers := map[string]*schema.Provider{
-		"unknown":  unknownProvider,
-		"redshift": testAccProvider,
+	providerFactories := map[string]func() (*schema.Provider, error){
+		"unknown":  func() (*schema.Provider, error) { return unknownProvider, nil },
+		"redshift": func() (*schema.Provider, error) { return Provider(), nil },
 	}
 
 	resource.Test(t, resource.TestCase{
-		PreCheck:     func() { testAccPreCheck(t) },
-		Providers:    providers,
-		CheckDestroy: testAccCheckRedshiftUserDestroy,
+		PreCheck:          func() { testAccPreCheck(t) },
+		ProviderFactories: providerFactories,
+		CheckDestroy:      testAccCheckRedshiftUserDestroy,
 		Steps: []resource.TestStep{
 			{
 				Config: config,

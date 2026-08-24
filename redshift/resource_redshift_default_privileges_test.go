@@ -28,19 +28,19 @@ func TestAccRedshiftDefaultPrivileges_Basic(t *testing.T) {
 		resource "redshift_group" "group" {
 		  name = %[1]q
 		}
-		
+
 		resource "redshift_user" "user" {
 		  name = %[2]q
 		  password = "TestPassword123"
 		}
-		
+
 		resource "redshift_default_privileges" "group" {
 		  group = redshift_group.group.name
 		  owner = "root"
 		  object_type = "table"
 		  privileges = ["select", "update", "insert", "delete", "drop", "references", "rule", "trigger"]
 		}
-		
+
 		resource "redshift_default_privileges" "user" {
 		  user = redshift_user.user.name
 		  owner = "root"
@@ -49,9 +49,9 @@ func TestAccRedshiftDefaultPrivileges_Basic(t *testing.T) {
 		}
 		`, groupName, userName)
 		resource.Test(t, resource.TestCase{
-			PreCheck:     func() { testAccPreCheck(t) },
-			Providers:    testAccProviders,
-			CheckDestroy: testAccCheckDefaultPrivilegesDestory(defaultPrivilegesAllSchemasID, 100, "r", groupName),
+			PreCheck:          func() { testAccPreCheck(t) },
+			ProviderFactories: testAccProviderFactories,
+			CheckDestroy:      testAccCheckDefaultPrivilegesDestory(defaultPrivilegesAllSchemasID, 100, "r", groupName),
 			Steps: []resource.TestStep{
 				{
 					Config: config,
@@ -104,19 +104,19 @@ func TestAccRedshiftDefaultPrivileges_UpdateToRevoke(t *testing.T) {
 		resource "redshift_group" "group" {
 		  name = %[1]q
 		}
-		
+
 		resource "redshift_user" "user" {
 		  name = %[2]q
 		  password = "TestPassword123"
 		}
-		
+
 		resource "redshift_default_privileges" "group" {
 		  group = redshift_group.group.name
 		  owner = "root"
 		  object_type = "table"
 		  privileges = ["select", "update", "insert", "delete", "drop", "references", "rule", "trigger"]
 		}
-		
+
 		resource "redshift_default_privileges" "user" {
 		  user = redshift_user.user.name
 		  owner = "root"
@@ -129,19 +129,19 @@ func TestAccRedshiftDefaultPrivileges_UpdateToRevoke(t *testing.T) {
 		resource "redshift_group" "group" {
 		  name = %[1]q
 		}
-		
+
 		resource "redshift_user" "user" {
 		  name = %[2]q
 		  password = "TestPassword123"
 		}
-		
+
 		resource "redshift_default_privileges" "group" {
 		  group = redshift_group.group.name
 		  owner = "root"
 		  object_type = "table"
 		  privileges = []
 		}
-		
+
 		resource "redshift_default_privileges" "user" {
 		  user = redshift_user.user.name
 		  owner = "root"
@@ -150,9 +150,9 @@ func TestAccRedshiftDefaultPrivileges_UpdateToRevoke(t *testing.T) {
 		}
 		`, groupName, userName)
 		resource.Test(t, resource.TestCase{
-			PreCheck:     func() { testAccPreCheck(t) },
-			Providers:    testAccProviders,
-			CheckDestroy: testAccCheckDefaultPrivilegesDestory(defaultPrivilegesAllSchemasID, 100, "r", groupName),
+			PreCheck:          func() { testAccPreCheck(t) },
+			ProviderFactories: testAccProviderFactories,
+			CheckDestroy:      testAccCheckDefaultPrivilegesDestory(defaultPrivilegesAllSchemasID, 100, "r", groupName),
 			Steps: []resource.TestStep{
 				{
 					Config: configInitial,
@@ -215,8 +215,8 @@ resource "redshift_default_privileges" "both" {
 }
 `
 	resource.Test(t, resource.TestCase{
-		PreCheck:  func() { testAccPreCheck(t) },
-		Providers: testAccProviders,
+		PreCheck:          func() { testAccPreCheck(t) },
+		ProviderFactories: testAccProviderFactories,
 		Steps: []resource.TestStep{
 			{
 				Config:      config,
@@ -235,8 +235,8 @@ resource "redshift_default_privileges" "none" {
 }
 `
 	resource.Test(t, resource.TestCase{
-		PreCheck:  func() { testAccPreCheck(t) },
-		Providers: testAccProviders,
+		PreCheck:          func() { testAccPreCheck(t) },
+		ProviderFactories: testAccProviderFactories,
 		Steps: []resource.TestStep{
 			{
 				Config:      config,

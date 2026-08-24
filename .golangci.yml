@@ -1,0 +1,10 @@
+version: "2"
+
+linters:
+  exclusions:
+    rules:
+      # Terraform SDK guarantees d.Get() and StateFunc val types match the schema definition.
+      # Checked assertions here would add noise without any real safety benefit.
+      - linters:
+          - forcetypeassert
+        path: "redshift/"

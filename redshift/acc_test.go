@@ -14,14 +14,14 @@ import (
 func getEnvOrSkip(key string, t *testing.T) string {
 	v := os.Getenv(key)
 	if v == "" {
-		t.Skipf(fmt.Sprintf("Environment variable %s was not set. Skipping...", key))
+		t.Skipf("Environment variable %s was not set. Skipping...", key)
 	}
 	return v
 }
 
-// Renders a string slice as a terraform array
+// Renders a string slice as a terraform array.
 func tfArray(s []string) string {
 	semiformat := fmt.Sprintf("%q\n", s)
 	tokens := strings.Split(semiformat, " ")
-	return fmt.Sprintf(strings.Join(tokens, ","))
+	return strings.Join(tokens, ",")
 }

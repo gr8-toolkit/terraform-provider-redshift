@@ -12,7 +12,7 @@ func dataSourceRedshiftSchema() *schema.Resource {
 		Description: `
 A database contains one or more named schemas. Each schema in a database contains tables and other kinds of named objects. By default, a database has a single schema, which is named PUBLIC. You can use schemas to group database objects under a common name. Schemas are similar to file system directories, except that schemas cannot be nested.
 `,
-		Read: RedshiftResourceFunc(dataSourceRedshiftSchemaRead),
+		ReadContext: RedshiftResourceFuncContext(dataSourceRedshiftSchemaRead),
 		Schema: map[string]*schema.Schema{
 			schemaNameAttr: {
 				Type:        schema.TypeString,
@@ -281,14 +281,16 @@ func dataSourceRedshiftSchemaRead(db *DBConnection, d *schema.ResourceData) erro
 		return err
 	}
 	d.SetId(schemaId)
-	d.Set(schemaOwnerAttr, schemaOwner)
+	if err := d.Set(schemaOwnerAttr, schemaOwner); err != nil {
+		return err
+	}
 
-	switch {
-	case schemaType == "local":
+	switch schemaType {
+	case "local":
 		return resourceRedshiftSchemaReadLocal(db, d)
-	case schemaType == "external":
+	case "external":
 		return resourceRedshiftSchemaReadExternal(db, d)
 	default:
-		return fmt.Errorf(`Unsupported schema type "%s". Supported types are "local" and "external".`, schemaType)
+		return fmt.Errorf(`unsupported schema type "%s"; supported types are "local" and "external"`, schemaType)
 	}
 }

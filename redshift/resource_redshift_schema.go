@@ -31,15 +31,14 @@ func redshiftSchema() *schema.Resource {
 		Description: `
 A database contains one or more named schemas. Each schema in a database contains tables and other kinds of named objects. By default, a database has a single schema, which is named PUBLIC. You can use schemas to group database objects under a common name. Schemas are similar to file system directories, except that schemas cannot be nested.
 `,
-		Create: RedshiftResourceFunc(resourceRedshiftSchemaCreate),
-		Read:   RedshiftResourceFunc(resourceRedshiftSchemaRead),
-		Update: RedshiftResourceFunc(resourceRedshiftSchemaUpdate),
-		Delete: RedshiftResourceFunc(
+		CreateContext: RedshiftResourceFuncContext(resourceRedshiftSchemaCreate),
+		ReadContext:   RedshiftResourceFuncContext(resourceRedshiftSchemaRead),
+		UpdateContext: RedshiftResourceFuncContext(resourceRedshiftSchemaUpdate),
+		DeleteContext: RedshiftResourceFuncContext(
 			RedshiftResourceRetryOnPQErrors(resourceRedshiftSchemaDelete),
 		),
-		Exists: RedshiftResourceExistsFunc(resourceRedshiftSchemaExists),
 		Importer: &schema.ResourceImporter{
-			State: schema.ImportStatePassthrough,
+			StateContext: schema.ImportStatePassthroughContext,
 		},
 		CustomizeDiff: forceNewIfListSizeChanged(schemaExternalSchemaAttr),
 		Schema: map[string]*schema.Schema{
@@ -171,10 +170,10 @@ A database contains one or more named schemas. Each schema in a database contain
 										Type:     schema.TypeBool,
 										Optional: true,
 										Default:  false,
-										DiffSuppressFunc: func(k, old, new string, d *schema.ResourceData) bool {
+										DiffSuppressFunc: func(k, old, newVal string, d *schema.ResourceData) bool {
 											// If the old value is empty, and the new value is not, it means we are creating the resource.
 											// This must trigger diff in order to save proper value in state.
-											if old == "" && new != "" {
+											if old == "" && newVal != "" {
 												return false
 											}
 											return true
@@ -400,20 +399,6 @@ A database contains one or more named schemas. Each schema in a database contain
 	}
 }
 
-func resourceRedshiftSchemaExists(db *DBConnection, d *schema.ResourceData) (bool, error) {
-	var name string
-	err := db.QueryRow("SELECT nspname FROM pg_namespace WHERE oid = $1", d.Id()).Scan(&name)
-
-	switch {
-	case err == sql.ErrNoRows:
-		return false, nil
-	case err != nil:
-		return false, err
-	}
-
-	return true, nil
-}
-
 func resourceRedshiftSchemaRead(db *DBConnection, d *schema.ResourceData) error {
 	return resourceRedshiftSchemaReadImpl(db, d)
 }
@@ -434,22 +419,31 @@ func resourceRedshiftSchemaReadImpl(db *DBConnection, d *schema.ResourceData) er
 	where svv_all_schemas.database_name = $1
 	AND pg_namespace.oid = $2`, db.client.databaseName, d.Id()).Scan(&schemaName, &schemaOwner, &schemaType)
 	if err != nil {
+		if err == sql.ErrNoRows {
+			log.Printf("[WARN] Redshift Schema (%s) not found", d.Id())
+			d.SetId("")
+			return nil
+		}
 		return err
 	}
-	d.Set(schemaNameAttr, schemaName)
-	d.Set(schemaOwnerAttr, schemaOwner)
-	switch {
-	case schemaType == "local":
+	if err := d.Set(schemaNameAttr, schemaName); err != nil {
+		return err
+	}
+	if err := d.Set(schemaOwnerAttr, schemaOwner); err != nil {
+		return err
+	}
+	switch schemaType {
+	case "local":
 		return resourceRedshiftSchemaReadLocal(db, d)
-	case schemaType == "external":
+	case "external":
 		return resourceRedshiftSchemaReadExternal(db, d)
 	default:
-		return fmt.Errorf(`Unsupported schema type "%s". Supported types are "local" and "external".`, schemaType)
+		return fmt.Errorf(`unsupported schema type "%s"; supported types are "local" and "external"`, schemaType)
 	}
 }
 
 func resourceRedshiftSchemaReadLocal(db *DBConnection, d *schema.ResourceData) error {
-	var schemaQuota int = 0
+	var schemaQuota = 0
 	if !db.client.config.IsServerless {
 		err := db.QueryRow(`
 			SELECT
@@ -461,9 +455,13 @@ func resourceRedshiftSchemaReadLocal(db *DBConnection, d *schema.ResourceData) e
 			return err
 		}
 	}
-	d.Set(schemaQuotaAttr, schemaQuota)
-	d.Set(schemaExternalSchemaAttr, nil)
-	
+	if err := d.Set(schemaQuotaAttr, schemaQuota); err != nil {
+		return err
+	}
+	if err := d.Set(schemaExternalSchemaAttr, nil); err != nil {
+		return err
+	}
+
 	return nil
 }
 
@@ -498,18 +496,18 @@ func resourceRedshiftSchemaReadExternal(db *DBConnection, d *schema.ResourceData
 	externalSchemaConfiguration := make(map[string]interface{})
 	sourceConfiguration := make(map[string]interface{})
 	externalSchemaConfiguration["database_name"] = &sourceDbName
-	switch {
-	case sourceType == "data_catalog_source":
+	switch sourceType {
+	case "data_catalog_source":
 		sourceConfiguration["region"] = &region
 		sourceConfiguration["iam_role_arns"], err = splitCsvAndTrim(iamRole)
 		if err != nil {
-			return fmt.Errorf("Error parsing iam_role_arns: %v", err)
+			return fmt.Errorf("error parsing iam_role_arns: %v", err)
 		}
 		sourceConfiguration["catalog_role_arns"], err = splitCsvAndTrim(catalogRole)
 		if err != nil {
-			return fmt.Errorf("Error parsing catalog_role_arns: %v", err)
+			return fmt.Errorf("error parsing catalog_role_arns: %v", err)
 		}
-	case sourceType == "hive_metastore_source":
+	case "hive_metastore_source":
 		sourceConfiguration["hostname"] = &hostName
 		if port != "" {
 			portNum, err := strconv.Atoi(port)
@@ -520,9 +518,9 @@ func resourceRedshiftSchemaReadExternal(db *DBConnection, d *schema.ResourceData
 		}
 		sourceConfiguration["iam_role_arns"], err = splitCsvAndTrim(iamRole)
 		if err != nil {
-			return fmt.Errorf("Error parsing iam_role_arns: %v", err)
+			return fmt.Errorf("error parsing iam_role_arns: %v", err)
 		}
-	case sourceType == "rds_postgres_source":
+	case "rds_postgres_source":
 		sourceConfiguration["hostname"] = &hostName
 		if port != "" {
 			portNum, err := strconv.Atoi(port)
@@ -536,10 +534,10 @@ func resourceRedshiftSchemaReadExternal(db *DBConnection, d *schema.ResourceData
 		}
 		sourceConfiguration["iam_role_arns"], err = splitCsvAndTrim(iamRole)
 		if err != nil {
-			return fmt.Errorf("Error parsing iam_role_arns: %v", err)
+			return fmt.Errorf("error parsing iam_role_arns: %v", err)
 		}
 		sourceConfiguration["secret_arn"] = &secretArn
-	case sourceType == "rds_mysql_source":
+	case "rds_mysql_source":
 		sourceConfiguration["hostname"] = &hostName
 		if port != "" {
 			portNum, err := strconv.Atoi(port)
@@ -550,26 +548,30 @@ func resourceRedshiftSchemaReadExternal(db *DBConnection, d *schema.ResourceData
 		}
 		sourceConfiguration["iam_role_arns"], err = splitCsvAndTrim(iamRole)
 		if err != nil {
-			return fmt.Errorf("Error parsing iam_role_arns: %v", err)
+			return fmt.Errorf("error parsing iam_role_arns: %v", err)
 		}
 		sourceConfiguration["secret_arn"] = &secretArn
-	case sourceType == "redshift_source":
+	case "redshift_source":
 		if sourceSchema != "" {
 			sourceConfiguration["schema"] = &sourceSchema
 		}
 	default:
-		return fmt.Errorf(`Unsupported source database type %s`, sourceType)
+		return fmt.Errorf(`unsupported source database type %s`, sourceType)
 	}
 	externalSchemaConfiguration[sourceType] = []map[string]interface{}{sourceConfiguration}
 
-	d.Set(schemaQuotaAttr, 0)
-	d.Set(schemaExternalSchemaAttr, []map[string]interface{}{externalSchemaConfiguration})
+	if err := d.Set(schemaQuotaAttr, 0); err != nil {
+		return err
+	}
+	if err := d.Set(schemaExternalSchemaAttr, []map[string]interface{}{externalSchemaConfiguration}); err != nil {
+		return err
+	}
 
 	return nil
 }
 
 func resourceRedshiftSchemaDelete(db *DBConnection, d *schema.ResourceData) error {
-	tx, err := startTransaction(db.client, "")
+	tx, err := startTransaction(db.client)
 	if err != nil {
 		return err
 	}
@@ -590,7 +592,7 @@ func resourceRedshiftSchemaDelete(db *DBConnection, d *schema.ResourceData) erro
 }
 
 func resourceRedshiftSchemaCreate(db *DBConnection, d *schema.ResourceData) error {
-	tx, err := startTransaction(db.client, "")
+	tx, err := startTransaction(db.client)
 	if err != nil {
 		return err
 	}
@@ -664,7 +666,7 @@ func resourceRedshiftSchemaCreateExternal(tx *sql.Tx, d *schema.ResourceData) er
 		// redshift source
 		configQuery = getRedshiftConfigQueryPart(d, sourceDbName)
 	} else {
-		return fmt.Errorf("Can't create external schema. No source configuration found.")
+		return fmt.Errorf("can't create external schema: no source configuration found")
 	}
 
 	query = fmt.Sprintf("%s %s", query, configQuery)
@@ -782,7 +784,7 @@ func getRedshiftConfigQueryPart(d *schema.ResourceData, sourceDbName string) str
 }
 
 func resourceRedshiftSchemaUpdate(db *DBConnection, d *schema.ResourceData) error {
-	tx, err := startTransaction(db.client, "")
+	tx, err := startTransaction(db.client)
 	if err != nil {
 		return err
 	}
@@ -792,7 +794,7 @@ func resourceRedshiftSchemaUpdate(db *DBConnection, d *schema.ResourceData) erro
 		return err
 	}
 
-	if err := setSchemaOwner(tx, db, d); err != nil {
+	if err := setSchemaOwner(tx, d); err != nil {
 		return err
 	}
 
@@ -817,18 +819,18 @@ func setSchemaName(tx *sql.Tx, d *schema.ResourceData) error {
 	newValue := newRaw.(string)
 
 	if newValue == "" {
-		return fmt.Errorf("Error setting schema name to an empty string")
+		return fmt.Errorf("error setting schema name to an empty string")
 	}
 
 	query := fmt.Sprintf("ALTER SCHEMA %s RENAME TO %s", pq.QuoteIdentifier(oldValue), pq.QuoteIdentifier(newValue))
 	if _, err := tx.Exec(query); err != nil {
-		return fmt.Errorf("Error updating schema NAME: %w", err)
+		return fmt.Errorf("error updating schema NAME: %w", err)
 	}
 
 	return nil
 }
 
-func setSchemaOwner(tx *sql.Tx, db *DBConnection, d *schema.ResourceData) error {
+func setSchemaOwner(tx *sql.Tx, d *schema.ResourceData) error {
 	if !d.HasChange(schemaOwnerAttr) {
 		return nil
 	}

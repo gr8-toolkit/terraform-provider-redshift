@@ -27,18 +27,18 @@ func TestAccRedshiftGrant_BasicDatabase(t *testing.T) {
 		resource "redshift_group" "group" {
 		  name = %[1]q
 		}
-		
+
 		resource "redshift_user" "user" {
 		  name = %[2]q
 		  password = "TestPassword123"
 		}
-		
+
 		resource "redshift_grant" "grant" {
 		  group = redshift_group.group.name
 		  object_type = "database"
 		  privileges = ["create", "temporary"]
 		}
-		
+
 		resource "redshift_grant" "grant_user" {
 		  user = redshift_user.user.name
 		  object_type = "database"
@@ -46,9 +46,9 @@ func TestAccRedshiftGrant_BasicDatabase(t *testing.T) {
 		}
 		`, groupName, userName)
 		resource.Test(t, resource.TestCase{
-			PreCheck:     func() { testAccPreCheck(t) },
-			Providers:    testAccProviders,
-			CheckDestroy: func(s *terraform.State) error { return nil },
+			PreCheck:          func() { testAccPreCheck(t) },
+			ProviderFactories: testAccProviderFactories,
+			CheckDestroy:      func(s *terraform.State) error { return nil },
 			Steps: []resource.TestStep{
 				{
 					Config: config,
@@ -89,37 +89,37 @@ func TestAccRedshiftGrant_BasicSchema(t *testing.T) {
 		resource "redshift_user" "user" {
 		  name = %[1]q
 		}
-		
+
 		resource "redshift_group" "group" {
 		  name = %[2]q
 		}
-		
+
 		resource "redshift_schema" "schema" {
 		  name = %[3]q
-		
+
 		  owner = redshift_user.user.name
 		}
-		
+
 		resource "redshift_grant" "grant" {
 		  group = redshift_group.group.name
 		  schema = redshift_schema.schema.name
-		
+
 		  object_type = "schema"
 		  privileges = ["create", "usage"]
 		}
-		
+
 		resource "redshift_grant" "grant_user" {
 		  user = redshift_user.user.name
 		  schema = redshift_schema.schema.name
-		  
+
 		  object_type = "schema"
 		  privileges = ["create", "usage"]
 		}
 		`, userName, groupName, schemaName)
 		resource.Test(t, resource.TestCase{
-			PreCheck:     func() { testAccPreCheck(t) },
-			Providers:    testAccProviders,
-			CheckDestroy: func(s *terraform.State) error { return nil },
+			PreCheck:          func() { testAccPreCheck(t) },
+			ProviderFactories: testAccProviderFactories,
+			CheckDestroy:      func(s *terraform.State) error { return nil },
 			Steps: []resource.TestStep{
 				{
 					Config: config,
@@ -160,34 +160,34 @@ func TestAccRedshiftGrant_BasicTable(t *testing.T) {
 		resource "redshift_group" "group" {
 		  name = %[1]q
 		}
-		
+
 		resource "redshift_user" "user" {
 		  name = %[2]q
 		  password = "TestPassword123"
 		}
-		
+
 		resource "redshift_grant" "grant" {
 		  group = redshift_group.group.name
 		  schema = "pg_catalog"
-		
+
 		  object_type = "table"
 		  objects = ["pg_user_info"]
 		  privileges = ["select", "update", "insert", "delete", "drop", "references", "rule", "trigger"]
 		}
-		
+
 		resource "redshift_grant" "grant_user" {
 		  user = redshift_user.user.name
 		  schema = "pg_catalog"
-		
+
 		  object_type = "table"
 		  objects = ["pg_user_info"]
 		  privileges = ["select", "update", "insert", "delete", "drop", "references", "rule", "trigger"]
 		}
 		`, groupName, userName)
 		resource.Test(t, resource.TestCase{
-			PreCheck:     func() { testAccPreCheck(t) },
-			Providers:    testAccProviders,
-			CheckDestroy: func(s *terraform.State) error { return nil },
+			PreCheck:          func() { testAccPreCheck(t) },
+			ProviderFactories: testAccProviderFactories,
+			CheckDestroy:      func(s *terraform.State) error { return nil },
 			Steps: []resource.TestStep{
 				{
 					Config: config,
@@ -244,12 +244,12 @@ func TestAccRedshiftGrant_BasicCallables(t *testing.T) {
 	for i, groupName := range groupNames {
 		userName := userNames[i]
 		resource.Test(t, resource.TestCase{
-			PreCheck:     func() { testAccPreCheck(t) },
-			Providers:    testAccProviders,
-			CheckDestroy: func(s *terraform.State) error { return nil },
+			PreCheck:          func() { testAccPreCheck(t) },
+			ProviderFactories: testAccProviderFactories,
+			CheckDestroy:      func(s *terraform.State) error { return nil },
 			Steps: []resource.TestStep{
 				{
-					Config: testAccRedshiftGrant_basicCallables_configUserGroup(userName, groupName, schema),
+					Config: testAccRedshiftGrant_basicCallables_configUserGroup(userName, groupName),
 				},
 				{
 					PreConfig: func() {
@@ -335,31 +335,31 @@ func TestAccRedshiftGrant_BasicLanguage(t *testing.T) {
 		resource "redshift_user" "user" {
 		  name = %[1]q
 		}
-		
+
 		resource "redshift_group" "group" {
 		  name = %[2]q
 		}
-		
+
 		resource "redshift_grant" "grant" {
 		  group  = redshift_group.group.name
 		  objects = [%[3]q, %[4]q]
-		
+
 		  object_type = "language"
 		  privileges = ["usage"]
 		}
-		
+
 		resource "redshift_grant" "grant_user" {
 		  user = redshift_user.user.name
 		  objects = [%[3]q, %[4]q]
-		
+
 		  object_type = "language"
 		  privileges = ["usage"]
 		}
 		`, userName, groupName, addedLanguage, secondLanguage)
 		resource.Test(t, resource.TestCase{
-			PreCheck:     func() { testAccPreCheck(t) },
-			Providers:    testAccProviders,
-			CheckDestroy: func(s *terraform.State) error { return nil },
+			PreCheck:          func() { testAccPreCheck(t) },
+			ProviderFactories: testAccProviderFactories,
+			CheckDestroy:      func(s *terraform.State) error { return nil },
 			Steps: []resource.TestStep{
 				{
 					Config: config,
@@ -419,9 +419,9 @@ func TestAccRedshiftGrant_Regression_GH_Issue_24(t *testing.T) {
 		}
 		`, userName, schemaName, dbName)
 		resource.Test(t, resource.TestCase{
-			PreCheck:     func() { testAccPreCheck(t) },
-			Providers:    testAccProviders,
-			CheckDestroy: func(s *terraform.State) error { return nil },
+			PreCheck:          func() { testAccPreCheck(t) },
+			ProviderFactories: testAccProviderFactories,
+			CheckDestroy:      func(s *terraform.State) error { return nil },
 			Steps: []resource.TestStep{
 				{
 					Config: config,
@@ -482,9 +482,9 @@ resource "redshift_grant" "grants2" {
 `, userName)
 
 	resource.Test(t, resource.TestCase{
-		PreCheck:     func() { testAccPreCheck(t) },
-		Providers:    testAccProviders,
-		CheckDestroy: func(s *terraform.State) error { return nil },
+		PreCheck:          func() { testAccPreCheck(t) },
+		ProviderFactories: testAccProviderFactories,
+		CheckDestroy:      func(s *terraform.State) error { return nil },
 		Steps: []resource.TestStep{
 			{
 				Config: config,
@@ -513,7 +513,7 @@ func testAccRedshiftGrant_Regression_Issue_43_compare_ids(addr1 string, addr2 st
 	}
 }
 
-func testAccRedshiftGrant_basicCallables_configUserGroup(username, group, schema string) string {
+func testAccRedshiftGrant_basicCallables_configUserGroup(username, group string) string {
 	return fmt.Sprintf(`
 resource "redshift_user" "user" {
   name = %[1]q
@@ -573,7 +573,7 @@ resource "redshift_grant" "grant_user_proc" {
 `, username, group, schema)
 }
 
-func testAccRedshiftGrant_basicCallables_createSchemaAndCallables(t *testing.T, db *DBConnection, schema string) error {
+func testAccRedshiftGrant_basicCallables_createSchemaAndCallables(_ *testing.T, db *DBConnection, schema string) error {
 	_, err := db.Exec(fmt.Sprintf("CREATE SCHEMA %s", pq.QuoteIdentifier(schema)))
 	if err != nil {
 		return fmt.Errorf("couldn't create schema: %s", err)
@@ -627,7 +627,7 @@ func testAccRedshiftGrant_basicCallables_createSchemaAndCallables(t *testing.T, 
 	return nil
 }
 
-func testAccRedshiftGrant_basicCallables_dropResources(t *testing.T, db *DBConnection, schema string) error {
+func testAccRedshiftGrant_basicCallables_dropResources(_ *testing.T, db *DBConnection, schema string) error {
 	query := fmt.Sprintf("DROP SCHEMA %s CASCADE", pq.QuoteIdentifier(schema))
 	_, err := db.Exec(query)
 	if err != nil {

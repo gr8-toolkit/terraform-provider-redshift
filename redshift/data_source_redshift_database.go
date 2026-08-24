@@ -10,7 +10,7 @@ import (
 func dataSourceRedshiftDatabase() *schema.Resource {
 	return &schema.Resource{
 		Description: `Fetches information about a Redshift database.`,
-		Read:        RedshiftResourceFunc(dataSourceRedshiftDatabaseRead),
+		ReadContext: RedshiftResourceFuncContext(dataSourceRedshiftDatabaseRead),
 		Schema: map[string]*schema.Schema{
 			databaseNameAttr: {
 				Type:        schema.TypeString,
@@ -102,8 +102,12 @@ WHERE svv_redshift_databases.database_name = $1
 	}
 
 	d.SetId(id)
-	d.Set(databaseOwnerAttr, owner)
-	d.Set(databaseConnLimitAttr, connLimitNumber)
+	if err := d.Set(databaseOwnerAttr, owner); err != nil {
+		return err
+	}
+	if err := d.Set(databaseConnLimitAttr, connLimitNumber); err != nil {
+		return err
+	}
 
 	dataShareConfiguration := make([]map[string]interface{}, 0, 1)
 	if databaseType == "shared" {
@@ -113,7 +117,9 @@ WHERE svv_redshift_databases.database_name = $1
 		config[databaseDatashareSourceNamespaceAttr] = &producerNamespace
 		dataShareConfiguration = append(dataShareConfiguration, config)
 	}
-	d.Set(databaseDatashareSourceAttr, dataShareConfiguration)
+	if err := d.Set(databaseDatashareSourceAttr, dataShareConfiguration); err != nil {
+		return err
+	}
 
 	return nil
 }

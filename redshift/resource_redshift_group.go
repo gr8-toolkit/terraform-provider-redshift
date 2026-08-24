@@ -3,6 +3,7 @@ package redshift
 import (
 	"database/sql"
 	"fmt"
+	"log"
 	"regexp"
 	"strings"
 
@@ -21,15 +22,14 @@ func redshiftGroup() *schema.Resource {
 		Description: `
 Groups are collections of users who are all granted whatever privileges are associated with the group. You can use groups to assign privileges by role. For example, you can create different groups for sales, administration, and support and give the users in each group the appropriate access to the data they require for their work. You can grant or revoke privileges at the group level, and those changes will apply to all members of the group, except for superusers.
 `,
-		Create: RedshiftResourceFunc(resourceRedshiftGroupCreate),
-		Read:   RedshiftResourceFunc(resourceRedshiftGroupRead),
-		Update: RedshiftResourceFunc(resourceRedshiftGroupUpdate),
-		Delete: RedshiftResourceFunc(
+		CreateContext: RedshiftResourceFuncContext(resourceRedshiftGroupCreate),
+		ReadContext:   RedshiftResourceFuncContext(resourceRedshiftGroupRead),
+		UpdateContext: RedshiftResourceFuncContext(resourceRedshiftGroupUpdate),
+		DeleteContext: RedshiftResourceFuncContext(
 			RedshiftResourceRetryOnPQErrors(resourceRedshiftGroupDelete),
 		),
-		Exists: RedshiftResourceExistsFunc(resourceRedshiftGroupExists),
 		Importer: &schema.ResourceImporter{
-			State: schema.ImportStatePassthrough,
+			StateContext: schema.ImportStatePassthroughContext,
 		},
 
 		Schema: map[string]*schema.Schema{
@@ -54,20 +54,6 @@ Groups are collections of users who are all granted whatever privileges are asso
 	}
 }
 
-func resourceRedshiftGroupExists(db *DBConnection, d *schema.ResourceData) (bool, error) {
-	var name string
-	err := db.QueryRow("SELECT groname FROM pg_group WHERE grosysid = $1", d.Id()).Scan(&name)
-
-	switch {
-	case err == sql.ErrNoRows:
-		return false, nil
-	case err != nil:
-		return false, err
-	}
-
-	return true, nil
-}
-
 func resourceRedshiftGroupRead(db *DBConnection, d *schema.ResourceData) error {
 	return resourceRedshiftGroupReadImpl(db, d)
 }
@@ -78,13 +64,22 @@ func resourceRedshiftGroupReadImpl(db *DBConnection, d *schema.ResourceData) err
 		groupUsers []string
 	)
 
-	sql := `SELECT ARRAY(SELECT u.usename FROM pg_user_info u, pg_group g WHERE g.grosysid = $1 AND u.usesysid = ANY(g.grolist)) AS members, groname FROM pg_group WHERE grosysid = $1`
-	if err := db.QueryRow(sql, d.Id()).Scan(pq.Array(&groupUsers), &groupName); err != nil {
+	query := `SELECT ARRAY(SELECT u.usename FROM pg_user_info u, pg_group g WHERE g.grosysid = $1 AND u.usesysid = ANY(g.grolist)) AS members, groname FROM pg_group WHERE grosysid = $1`
+	if err := db.QueryRow(query, d.Id()).Scan(pq.Array(&groupUsers), &groupName); err != nil {
+		if err == sql.ErrNoRows {
+			log.Printf("[WARN] Redshift Group (%s) not found", d.Id())
+			d.SetId("")
+			return nil
+		}
 		return err
 	}
 
-	d.Set(groupNameAttr, groupName)
-	d.Set(groupUsersAttr, groupUsers)
+	if err := d.Set(groupNameAttr, groupName); err != nil {
+		return err
+	}
+	if err := d.Set(groupUsersAttr, groupUsers); err != nil {
+		return err
+	}
 
 	return nil
 }
@@ -92,7 +87,7 @@ func resourceRedshiftGroupReadImpl(db *DBConnection, d *schema.ResourceData) err
 func resourceRedshiftGroupCreate(db *DBConnection, d *schema.ResourceData) error {
 	groupName := d.Get(groupNameAttr).(string)
 
-	tx, err := startTransaction(db.client, "")
+	tx, err := startTransaction(db.client)
 	if err != nil {
 		return err
 	}
@@ -114,12 +109,12 @@ func resourceRedshiftGroupCreate(db *DBConnection, d *schema.ResourceData) error
 	}
 
 	if _, err := tx.Exec(sql); err != nil {
-		return fmt.Errorf("Could not create redshift group: %s", err)
+		return fmt.Errorf("could not create redshift group: %s", err)
 	}
 
 	var groSysID string
 	if err := tx.QueryRow("SELECT grosysid FROM pg_group WHERE groname = $1", strings.ToLower(groupName)).Scan(&groSysID); err != nil {
-		return fmt.Errorf("Could not get redshift group id for '%s': %s", groupName, err)
+		return fmt.Errorf("could not get redshift group id for '%s': %s", groupName, err)
 	}
 
 	d.SetId(groSysID)
@@ -134,7 +129,7 @@ func resourceRedshiftGroupCreate(db *DBConnection, d *schema.ResourceData) error
 func resourceRedshiftGroupDelete(db *DBConnection, d *schema.ResourceData) error {
 	groupName := d.Get(groupNameAttr).(string)
 
-	tx, err := startTransaction(db.client, "")
+	tx, err := startTransaction(db.client)
 	if err != nil {
 		return err
 	}
@@ -144,7 +139,7 @@ func resourceRedshiftGroupDelete(db *DBConnection, d *schema.ResourceData) error
 	if err != nil {
 		return err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	for rows.Next() {
 		var schemaName string
@@ -168,7 +163,7 @@ func resourceRedshiftGroupDelete(db *DBConnection, d *schema.ResourceData) error
 }
 
 func resourceRedshiftGroupUpdate(db *DBConnection, d *schema.ResourceData) error {
-	tx, err := startTransaction(db.client, "")
+	tx, err := startTransaction(db.client)
 	if err != nil {
 		return err
 	}
@@ -178,7 +173,7 @@ func resourceRedshiftGroupUpdate(db *DBConnection, d *schema.ResourceData) error
 		return err
 	}
 
-	if err := setUsersNames(tx, db, d); err != nil {
+	if err := setUsersNames(tx, d); err != nil {
 		return err
 	}
 
@@ -199,12 +194,12 @@ func setGroupName(tx *sql.Tx, d *schema.ResourceData) error {
 	newValue := newRaw.(string)
 
 	if newValue == "" {
-		return fmt.Errorf("Error setting group name to an empty string")
+		return fmt.Errorf("error setting group name to an empty string")
 	}
 
 	sql := fmt.Sprintf("ALTER GROUP %s RENAME TO %s", pq.QuoteIdentifier(oldValue), pq.QuoteIdentifier(newValue))
 	if _, err := tx.Exec(sql); err != nil {
-		return fmt.Errorf("Error updating Group NAME: %w", err)
+		return fmt.Errorf("error updating Group NAME: %w", err)
 	}
 
 	return nil
@@ -225,7 +220,7 @@ func checkIfUserExists(tx *sql.Tx, name string) (bool, error) {
 	return true, nil
 }
 
-func setUsersNames(tx *sql.Tx, db *DBConnection, d *schema.ResourceData) error {
+func setUsersNames(tx *sql.Tx, d *schema.ResourceData) error {
 	if !d.HasChange(groupUsersAttr) {
 		return nil
 	}

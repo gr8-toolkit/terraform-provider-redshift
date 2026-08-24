@@ -59,5 +59,3 @@ resource "redshift_datashare_privilege" "cross_account" {
 ### Read-Only
 
 - **share_date** (String) When the datashare permission was granted
-
-

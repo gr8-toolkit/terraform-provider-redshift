@@ -43,5 +43,3 @@ Optional:
 - **account_id** (String) The AWS account ID of the producer cluster.
 - **namespace** (String) The namespace (guid) of the producer cluster
 - **share_name** (String) The name of the datashare on the producer cluster
-
-

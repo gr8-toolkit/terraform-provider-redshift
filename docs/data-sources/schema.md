@@ -169,5 +169,3 @@ Read-Only:
 Optional:
 
 - **schema** (String) The name of the datashare schema. The default schema is 'public'.
-
-

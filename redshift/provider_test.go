@@ -2,7 +2,6 @@ package redshift
 
 import (
 	"context"
-	"fmt"
 	"os"
 	"strings"
 	"testing"
@@ -14,14 +13,20 @@ import (
 )
 
 var (
-	testAccProviders map[string]*schema.Provider
-	testAccProvider  *schema.Provider
+	testAccProviders         map[string]*schema.Provider
+	testAccProvider          *schema.Provider
+	testAccProviderFactories map[string]func() (*schema.Provider, error)
 )
 
 func init() {
 	testAccProvider = Provider()
 	testAccProviders = map[string]*schema.Provider{
 		"redshift": testAccProvider,
+	}
+	testAccProviderFactories = map[string]func() (*schema.Provider, error){
+		"redshift": func() (*schema.Provider, error) {
+			return Provider(), nil
+		},
 	}
 }
 
@@ -32,7 +37,7 @@ func TestProvider(t *testing.T) {
 }
 
 func TestProvider_impl(t *testing.T) {
-	var _ *schema.Provider = Provider()
+	var _ = Provider()
 }
 
 func testAccPreCheck(t *testing.T) {
@@ -48,14 +53,14 @@ func testAccPreCheck(t *testing.T) {
 func initTemporaryCredentialsProvider(t *testing.T, provider *schema.Provider) {
 	clusterIdentifier := getEnvOrSkip("REDSHIFT_TEMPORARY_CREDENTIALS_CLUSTER_IDENTIFIER", t)
 
-	sdkClient, err := stsClient(t)
+	sdkClient, err := stsClient()
 	if err != nil {
-		t.Skip(fmt.Sprintf("Unable to load STS client due to: %s", err))
+		t.Skipf("Unable to load STS client due to: %s", err)
 	}
 
 	response, err := sdkClient.GetCallerIdentity(context.TODO(), nil)
 	if err != nil {
-		t.Skip(fmt.Sprintf("Unable to get current STS identity due to: %s", err))
+		t.Skipf("Unable to get current STS identity due to: %s", err)
 	}
 	if response == nil {
 		t.Skip("Unable to get current STS identity. Empty response.")
@@ -83,7 +88,7 @@ func initTemporaryCredentialsProvider(t *testing.T, provider *schema.Provider) {
 	}
 }
 
-func stsClient(t *testing.T) (*sts.Client, error) {
+func stsClient() (*sts.Client, error) {
 	config, err := config.LoadDefaultConfig(context.TODO())
 	if err != nil {
 		return nil, err
@@ -93,9 +98,7 @@ func stsClient(t *testing.T) (*sts.Client, error) {
 
 func TestAccRedshiftTemporaryCredentials(t *testing.T) {
 	provider := Provider()
-	assume_role_arn := os.Getenv("REDSHIFT_TEMPORARY_CREDENTIALS_ASSUME_ROLE_ARN")
-	defer os.Setenv("REDSHIFT_TEMPORARY_CREDENTIALS_ASSUME_ROLE_ARN", assume_role_arn)
-	os.Unsetenv("REDSHIFT_TEMPORARY_CREDENTIALS_ASSUME_ROLE_ARN")
+	t.Setenv("REDSHIFT_TEMPORARY_CREDENTIALS_ASSUME_ROLE_ARN", "")
 	prepareRedshiftTemporaryCredentialsTestCases(t, provider)
 	client, ok := provider.Meta().(*Client)
 	if !ok {
@@ -105,7 +108,7 @@ func TestAccRedshiftTemporaryCredentials(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Unable to connect to database: %s", err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 }
 
 func TestAccRedshiftTemporaryCredentialsAssumeRole(t *testing.T) {
@@ -120,16 +123,13 @@ func TestAccRedshiftTemporaryCredentialsAssumeRole(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Unable to connect to database: %s", err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 }
 
 func prepareRedshiftTemporaryCredentialsTestCases(t *testing.T, provider *schema.Provider) {
-	redshift_password := os.Getenv("REDSHIFT_PASSWORD")
-	defer os.Setenv("REDSHIFT_PASSWORD", redshift_password)
-	os.Unsetenv("REDSHIFT_PASSWORD")
+	t.Setenv("REDSHIFT_PASSWORD", "")
 	rawUsername := os.Getenv("REDSHIFT_USER")
-	defer os.Setenv("REDSHIFT_USER", rawUsername)
 	username := strings.ToLower(permanentUsername(rawUsername))
-	os.Setenv("REDSHIFT_USER", username)
+	t.Setenv("REDSHIFT_USER", username)
 	initTemporaryCredentialsProvider(t, provider)
 }

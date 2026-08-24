@@ -32,13 +32,12 @@ The redshift_datashare resource should be defined on the producer cluster.
 Note: Data sharing is only supported on certain Redshift instance families,
 such as RA3.
 `,
-		Exists: RedshiftResourceExistsFunc(resourceRedshiftDatashareExists),
-		Create: RedshiftResourceFunc(resourceRedshiftDatashareCreate),
-		Read:   RedshiftResourceFunc(resourceRedshiftDatashareRead),
-		Update: RedshiftResourceFunc(resourceRedshiftDatashareUpdate),
-		Delete: RedshiftResourceFunc(resourceRedshiftDatashareDelete),
+		CreateContext: RedshiftResourceFuncContext(resourceRedshiftDatashareCreate),
+		ReadContext:   RedshiftResourceFuncContext(resourceRedshiftDatashareRead),
+		UpdateContext: RedshiftResourceFuncContext(resourceRedshiftDatashareUpdate),
+		DeleteContext: RedshiftResourceFuncContext(resourceRedshiftDatashareDelete),
 		Importer: &schema.ResourceImporter{
-			State: schema.ImportStatePassthrough,
+			StateContext: schema.ImportStatePassthroughContext,
 		},
 		Schema: map[string]*schema.Schema{
 			dataShareNameAttr: {
@@ -96,24 +95,8 @@ such as RA3.
 	}
 }
 
-func resourceRedshiftDatashareExists(db *DBConnection, d *schema.ResourceData) (bool, error) {
-	var name string
-	query := "SELECT share_name FROM svv_datashares WHERE share_type='OUTBOUND' AND share_id=$1"
-	log.Printf("[DEBUG] check if datashare exists: %s\n", query)
-	err := db.QueryRow(query, d.Id()).Scan(&name)
-
-	switch {
-	case err == sql.ErrNoRows:
-		return false, nil
-	case err != nil:
-		return false, err
-	}
-
-	return true, nil
-}
-
 func resourceRedshiftDatashareCreate(db *DBConnection, d *schema.ResourceData) error {
-	tx, err := startTransaction(db.client, "")
+	tx, err := startTransaction(db.client)
 	if err != nil {
 		return err
 	}
@@ -258,7 +241,7 @@ func resourceRedshiftDatashareRead(db *DBConnection, d *schema.ResourceData) err
 	var shareName, owner, producerAccount, producerNamespace, created string
 	var publicAccessible bool
 
-	tx, err := startTransaction(db.client, "")
+	tx, err := startTransaction(db.client)
 	if err != nil {
 		return err
 	}
@@ -278,16 +261,33 @@ func resourceRedshiftDatashareRead(db *DBConnection, d *schema.ResourceData) err
 	AND share_id = $1`
 	log.Printf("[DEBUG] %s, $1=%s\n", query, d.Id())
 	err = tx.QueryRow(query, d.Id()).Scan(&shareName, &owner, &publicAccessible, &producerAccount, &producerNamespace, &created)
+	if err == sql.ErrNoRows {
+		log.Printf("[WARN] Redshift Datashare (%s) not found", d.Id())
+		d.SetId("")
+		return nil
+	}
 	if err != nil {
 		return err
 	}
 
-	d.Set(dataShareNameAttr, shareName)
-	d.Set(dataShareOwnerAttr, owner)
-	d.Set(dataSharePublicAccessibleAttr, publicAccessible)
-	d.Set(dataShareProducerAccountAttr, producerAccount)
-	d.Set(dataShareProducerNamespaceAttr, producerNamespace)
-	d.Set(dataShareCreatedAttr, created)
+	if err := d.Set(dataShareNameAttr, shareName); err != nil {
+		return err
+	}
+	if err := d.Set(dataShareOwnerAttr, owner); err != nil {
+		return err
+	}
+	if err := d.Set(dataSharePublicAccessibleAttr, publicAccessible); err != nil {
+		return err
+	}
+	if err := d.Set(dataShareProducerAccountAttr, producerAccount); err != nil {
+		return err
+	}
+	if err := d.Set(dataShareProducerNamespaceAttr, producerNamespace); err != nil {
+		return err
+	}
+	if err := d.Set(dataShareCreatedAttr, created); err != nil {
+		return err
+	}
 
 	if err = readDatashareSchemas(tx, shareName, d); err != nil {
 		return err
@@ -314,7 +314,7 @@ func readDatashareSchemas(tx *sql.Tx, shareName string, d *schema.ResourceData) 
 	if err != nil {
 		return err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	schemas := schema.NewSet(schema.HashString, nil)
 	for rows.Next() {
@@ -324,12 +324,11 @@ func readDatashareSchemas(tx *sql.Tx, shareName string, d *schema.ResourceData) 
 		}
 		schemas.Add(schemaName)
 	}
-	d.Set(dataShareSchemasAttr, schemas)
-	return nil
+	return d.Set(dataShareSchemasAttr, schemas)
 }
 
 func resourceRedshiftDatashareUpdate(db *DBConnection, d *schema.ResourceData) error {
-	tx, err := startTransaction(db.client, "")
+	tx, err := startTransaction(db.client)
 	if err != nil {
 		return err
 	}
@@ -370,7 +369,7 @@ func setDatashareOwner(tx *sql.Tx, d *schema.ResourceData) error {
 	query := fmt.Sprintf("ALTER DATASHARE %s OWNER TO %s", pq.QuoteIdentifier(shareName), newValue)
 	log.Printf("[DEBUG] %s\n", query)
 	if _, err := tx.Exec(query); err != nil {
-		return fmt.Errorf("Error updating datashare OWNER :%w", err)
+		return fmt.Errorf("error updating datashare OWNER: %w", err)
 	}
 	return nil
 }
@@ -385,7 +384,7 @@ func setDatasharePubliclyAccessble(tx *sql.Tx, d *schema.ResourceData) error {
 	query := fmt.Sprintf("ALTER DATASHARE %s SET PUBLICACCESSIBLE %t", pq.QuoteIdentifier(shareName), newValue)
 	log.Printf("[DEBUG] %s\n", query)
 	if _, err := tx.Exec(query); err != nil {
-		return fmt.Errorf("Error updating datashare PUBLICACCESSBILE :%w", err)
+		return fmt.Errorf("error updating datashare PUBLICACCESSBILE: %w", err)
 	}
 	return nil
 }
@@ -421,7 +420,7 @@ func setDatashareSchemas(tx *sql.Tx, d *schema.ResourceData) error {
 }
 
 func resourceRedshiftDatashareDelete(db *DBConnection, d *schema.ResourceData) error {
-	tx, err := startTransaction(db.client, "")
+	tx, err := startTransaction(db.client)
 	if err != nil {
 		return err
 	}

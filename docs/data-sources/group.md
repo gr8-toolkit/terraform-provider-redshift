@@ -32,5 +32,3 @@ data "redshift_group" "staff" {
 ### Read-Only
 
 - **users** (Set of String) List of the user names who belong to the group
-
-

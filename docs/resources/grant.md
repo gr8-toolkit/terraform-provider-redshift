@@ -53,5 +53,3 @@ resource "redshift_grant" "user" {
 - **objects** (Set of String) The objects upon which to grant the privileges. An empty list (the default) means to grant permissions on all objects of the specified type. Ignored when `object_type` is one of (`database`, `schema`).
 - **schema** (String) The database schema to grant privileges on.
 - **user** (String) The name of the user to grant privileges on. Either `user` or `group` parameter must be set.
-
-

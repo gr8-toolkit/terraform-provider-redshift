@@ -12,6 +12,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/credentials/stscreds"
 	"github.com/aws/aws-sdk-go-v2/service/redshift"
 	"github.com/aws/aws-sdk-go-v2/service/sts"
+	"github.com/hashicorp/terraform-plugin-sdk/v2/diag"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/schema"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/validation"
 )
@@ -149,23 +150,23 @@ func Provider() *schema.Provider {
 			"redshift_database":  dataSourceRedshiftDatabase(),
 			"redshift_namespace": dataSourceRedshiftNamespace(),
 		},
-		ConfigureFunc: providerConfigure,
+		ConfigureContextFunc: providerConfigure,
 	}
 }
 
-func providerConfigure(d *schema.ResourceData) (interface{}, error) {
+func providerConfigure(_ context.Context, d *schema.ResourceData) (interface{}, diag.Diagnostics) {
 	username, password, err := resolveCredentials(d)
 	if err != nil {
-		return nil, err
+		return nil, diag.FromErr(err)
 	}
 	config := Config{
-		Host:     d.Get("host").(string),
-		Port:     d.Get("port").(int),
-		Username: username,
-		Password: password,
-		Database: d.Get("database").(string),
-		SSLMode:  d.Get("sslmode").(string),
-		MaxConns: d.Get("max_connections").(int),
+		Host:         d.Get("host").(string),
+		Port:         d.Get("port").(int),
+		Username:     username,
+		Password:     password,
+		Database:     d.Get("database").(string),
+		SSLMode:      d.Get("sslmode").(string),
+		MaxConns:     d.Get("max_connections").(int),
 		IsServerless: d.Get("is_serverless").(bool),
 	}
 
@@ -178,7 +179,7 @@ func providerConfigure(d *schema.ResourceData) (interface{}, error) {
 func resolveCredentials(d *schema.ResourceData) (string, string, error) {
 	username, ok := d.GetOk("username")
 	if (!ok) || username == nil {
-		return "", "", fmt.Errorf("Username is required")
+		return "", "", fmt.Errorf("username is required")
 	}
 	if _, useTemporaryCredentials := d.GetOk("temporary_credentials.0"); useTemporaryCredentials {
 		log.Println("[DEBUG] using temporary credentials authentication")
@@ -192,7 +193,7 @@ func resolveCredentials(d *schema.ResourceData) (string, string, error) {
 	return username.(string), password.(string), nil
 }
 
-// temporaryCredentials gets temporary credentials using GetClusterCredentials
+// temporaryCredentials gets temporary credentials using GetClusterCredentials.
 func temporaryCredentials(username string, d *schema.ResourceData) (string, string, error) {
 	sdkClient, err := redshiftSdkClient(d)
 	if err != nil {

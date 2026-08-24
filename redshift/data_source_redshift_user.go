@@ -14,7 +14,7 @@ func dataSourceRedshiftUser() *schema.Resource {
 		Description: `
 This data source can be used to fetch information about a specific database user. Users are authenticated when they login to Amazon Redshift. They can own databases and database objects (for example, tables) and can grant privileges on those objects to users, groups, and schemas to control who has access to which object. Users with CREATE DATABASE rights can create databases and grant privileges to those databases. Superusers have database ownership privileges for all databases.
 `,
-		Read: RedshiftResourceFunc(dataSourceRedshiftUserRead),
+		ReadContext: RedshiftResourceFuncContext(dataSourceRedshiftUserRead),
 		Schema: map[string]*schema.Schema{
 			userNameAttr: {
 				Type:        schema.TypeString,
@@ -97,11 +97,21 @@ func dataSourceRedshiftUserRead(db *DBConnection, d *schema.ResourceData) error 
 	}
 
 	d.SetId(useSysID)
-	d.Set(userCreateDBAttr, userCreateDB)
-	d.Set(userSuperuserAttr, userSuperuser)
-	d.Set(userSyslogAccessAttr, userSyslogAccess)
-	d.Set(userConnLimitAttr, userConnLimitNumber)
-	d.Set(userValidUntilAttr, userValidUntil)
+	if err := d.Set(userCreateDBAttr, userCreateDB); err != nil {
+		return err
+	}
+	if err := d.Set(userSuperuserAttr, userSuperuser); err != nil {
+		return err
+	}
+	if err := d.Set(userSyslogAccessAttr, userSyslogAccess); err != nil {
+		return err
+	}
+	if err := d.Set(userConnLimitAttr, userConnLimitNumber); err != nil {
+		return err
+	}
+	if err := d.Set(userValidUntilAttr, userValidUntil); err != nil {
+		return err
+	}
 
 	return nil
 }

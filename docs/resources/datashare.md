@@ -57,5 +57,3 @@ resource "redshift_datashare" "my_datashare" {
 - **created** (String) The date when datashare was created
 - **producer_account** (String) The ID for the datashare producer account.
 - **producer_namespace** (String) The unique cluster identifier for the datashare producer cluster.
-
-

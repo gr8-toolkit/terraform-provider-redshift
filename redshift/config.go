@@ -15,19 +15,19 @@ var (
 	dbRegistry     map[string]*DBConnection = make(map[string]*DBConnection, 1)
 )
 
-// Config - provider config
+// Config - provider config.
 type Config struct {
-	Host     string
-	Username string
-	Password string
-	Port     int
-	Database string
-	SSLMode  string
-	MaxConns int
+	Host         string
+	Username     string
+	Password     string
+	Port         int
+	Database     string
+	SSLMode      string
+	MaxConns     int
 	IsServerless bool
 }
 
-// Client struct holding connection string
+// Client struct holding connection string.
 type Client struct {
 	config       Config
 	databaseName string
@@ -61,7 +61,7 @@ func (c *Client) Connect() (*DBConnection, error) {
 	if !found {
 		db, err := sql.Open(proxyDriverName, dsn)
 		if err != nil {
-			return nil, fmt.Errorf("Error connecting to PostgreSQL server %s: %w", c.config.Host, err)
+			return nil, fmt.Errorf("error connecting to PostgreSQL server %s: %w", c.config.Host, err)
 		}
 
 		// We don't want to retain connection
@@ -108,7 +108,7 @@ func (c *Config) connParams() []string {
 	return paramsArray
 }
 
-// New redshift client
+// New redshift client.
 func (c *Config) Client() (*Client, error) {
 
 	conninfo := fmt.Sprintf("sslmode=%v user=%v password=%v host=%v port=%v dbname=%v",
@@ -121,7 +121,7 @@ func (c *Config) Client() (*Client, error) {
 
 	db, err := sql.Open(proxyDriverName, conninfo)
 	if err != nil {
-		db.Close()
+		_ = db.Close()
 		return nil, err
 	}
 
@@ -135,6 +135,6 @@ func (c *Config) Client() (*Client, error) {
 
 func (c *Client) Close() {
 	if c.db != nil {
-		c.db.Close()
+		_ = c.db.Close()
 	}
 }

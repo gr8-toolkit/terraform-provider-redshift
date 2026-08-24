@@ -22,14 +22,13 @@ const databaseDatashareSourceAccountAttr = "account_id"
 
 func redshiftDatabase() *schema.Resource {
 	return &schema.Resource{
-		Description: `Defines a local database.`,
-		Exists:      RedshiftResourceExistsFunc(resourceRedshiftDatabaseExists),
-		Create:      RedshiftResourceFunc(resourceRedshiftDatabaseCreate),
-		Read:        RedshiftResourceFunc(resourceRedshiftDatabaseRead),
-		Update:      RedshiftResourceFunc(resourceRedshiftDatabaseUpdate),
-		Delete:      RedshiftResourceFunc(resourceRedshiftDatabaseDelete),
+		Description:   `Defines a local database.`,
+		CreateContext: RedshiftResourceFuncContext(resourceRedshiftDatabaseCreate),
+		ReadContext:   RedshiftResourceFuncContext(resourceRedshiftDatabaseRead),
+		UpdateContext: RedshiftResourceFuncContext(resourceRedshiftDatabaseUpdate),
+		DeleteContext: RedshiftResourceFuncContext(resourceRedshiftDatabaseDelete),
 		Importer: &schema.ResourceImporter{
-			State: schema.ImportStatePassthrough,
+			StateContext: schema.ImportStatePassthroughContext,
 		},
 		CustomizeDiff: forceNewIfListSizeChanged(databaseDatashareSourceAttr),
 		Schema: map[string]*schema.Schema{
@@ -94,22 +93,6 @@ func redshiftDatabase() *schema.Resource {
 	}
 }
 
-func resourceRedshiftDatabaseExists(db *DBConnection, d *schema.ResourceData) (bool, error) {
-	var name string
-	query := "SELECT datname FROM pg_database WHERE oid = $1"
-	log.Printf("[DEBUG] check if database exists: %s\n", query)
-	err := db.QueryRow(query, d.Id()).Scan(&name)
-
-	switch {
-	case err == sql.ErrNoRows:
-		return false, nil
-	case err != nil:
-		return false, err
-	}
-
-	return true, nil
-}
-
 func resourceRedshiftDatabaseCreate(db *DBConnection, d *schema.ResourceData) error {
 	if _, isDataShare := d.GetOk(fmt.Sprintf("%s.0.%s", databaseDatashareSourceAttr, databaseDatashareSourceShareNameAttr)); isDataShare {
 		return resourceRedshiftDatabaseCreateFromDatashare(db, d)
@@ -142,7 +125,7 @@ func resourceRedshiftDatabaseCreateFromDatashare(db *DBConnection, d *schema.Res
 
 	// CREATE DATABASE isn't allowed to run inside a transaction, however ALTER DATABASE
 	// can be
-	tx, err := startTransaction(db.client, "")
+	tx, err := startTransaction(db.client)
 	if err != nil {
 		return err
 	}
@@ -223,6 +206,11 @@ WHERE pg_database_info.datid = $1
 	log.Printf("[DEBUG] read database: %s\n", query)
 	err := db.QueryRow(query, d.Id()).Scan(&name, &owner, &connLimit, &databaseType, &shareName, &producerAccount, &producerNamespace)
 
+	if err == sql.ErrNoRows {
+		log.Printf("[WARN] Redshift Database (%s) not found", d.Id())
+		d.SetId("")
+		return nil
+	}
 	if err != nil {
 		return err
 	}
@@ -234,9 +222,15 @@ WHERE pg_database_info.datid = $1
 		}
 	}
 
-	d.Set(databaseNameAttr, name)
-	d.Set(databaseOwnerAttr, owner)
-	d.Set(databaseConnLimitAttr, connLimitNumber)
+	if err := d.Set(databaseNameAttr, name); err != nil {
+		return err
+	}
+	if err := d.Set(databaseOwnerAttr, owner); err != nil {
+		return err
+	}
+	if err := d.Set(databaseConnLimitAttr, connLimitNumber); err != nil {
+		return err
+	}
 
 	dataShareConfiguration := make([]map[string]interface{}, 0, 1)
 	if databaseType == "shared" {
@@ -246,13 +240,15 @@ WHERE pg_database_info.datid = $1
 		config[databaseDatashareSourceNamespaceAttr] = &producerNamespace
 		dataShareConfiguration = append(dataShareConfiguration, config)
 	}
-	d.Set(databaseDatashareSourceAttr, dataShareConfiguration)
+	if err := d.Set(databaseDatashareSourceAttr, dataShareConfiguration); err != nil {
+		return err
+	}
 
 	return nil
 }
 
 func resourceRedshiftDatabaseUpdate(db *DBConnection, d *schema.ResourceData) error {
-	tx, err := startTransaction(db.client, "")
+	tx, err := startTransaction(db.client)
 	if err != nil {
 		return err
 	}
@@ -287,13 +283,13 @@ func setDatabaseName(tx *sql.Tx, d *schema.ResourceData) error {
 	newValue := newRaw.(string)
 
 	if newValue == "" {
-		return fmt.Errorf("Error setting database name to an empty string")
+		return fmt.Errorf("error setting database name to an empty string")
 	}
 
 	query := fmt.Sprintf("ALTER DATABASE %s RENAME TO %s", pq.QuoteIdentifier(oldValue), pq.QuoteIdentifier(newValue))
 	log.Printf("[DEBUG] renaming database %s to %s: %s\n", oldValue, newValue, query)
 	if _, err := tx.Exec(query); err != nil {
-		return fmt.Errorf("Error updating database NAME: %w", err)
+		return fmt.Errorf("error updating database NAME: %w", err)
 	}
 
 	return nil

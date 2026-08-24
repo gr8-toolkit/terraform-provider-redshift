@@ -40,16 +40,15 @@ func redshiftGrant() *schema.Resource {
 		Description: `
 Defines access privileges for users and  groups. Privileges include access options such as being able to read data in tables and views, write data, create tables, and drop tables. Use this command to give specific privileges for a table, database, schema, function, procedure, language, or column.
 `,
-		Read: RedshiftResourceFunc(resourceRedshiftGrantRead),
-		Create: RedshiftResourceFunc(
+		ReadContext: RedshiftResourceFuncContext(resourceRedshiftGrantRead),
+		CreateContext: RedshiftResourceFuncContext(
 			RedshiftResourceRetryOnPQErrors(resourceRedshiftGrantCreate),
 		),
-		Delete: RedshiftResourceFunc(
+		DeleteContext: RedshiftResourceFuncContext(
 			RedshiftResourceRetryOnPQErrors(resourceRedshiftGrantDelete),
 		),
-
 		// Since we revoke all when creating, we can use create as update
-		Update: RedshiftResourceFunc(
+		UpdateContext: RedshiftResourceFuncContext(
 			RedshiftResourceRetryOnPQErrors(resourceRedshiftGrantCreate),
 		),
 
@@ -133,10 +132,10 @@ func resourceRedshiftGrantCreate(db *DBConnection, d *schema.ResourceData) error
 	}
 
 	if !validatePrivileges(privileges, objectType) {
-		return fmt.Errorf("Invalid privileges list %v for object of type %s", privileges, objectType)
+		return fmt.Errorf("invalid privileges list %v for object of type %s", privileges, objectType)
 	}
 
-	tx, err := startTransaction(db.client, "")
+	tx, err := startTransaction(db.client)
 	if err != nil {
 		return err
 	}
@@ -160,7 +159,7 @@ func resourceRedshiftGrantCreate(db *DBConnection, d *schema.ResourceData) error
 }
 
 func resourceRedshiftGrantDelete(db *DBConnection, d *schema.ResourceData) error {
-	tx, err := startTransaction(db.client, "")
+	tx, err := startTransaction(db.client)
 	if err != nil {
 		return err
 	}
@@ -196,7 +195,7 @@ func resourceRedshiftGrantReadImpl(db *DBConnection, d *schema.ResourceData) err
 	case "language":
 		return readLanguageGrants(db, d)
 	default:
-		return fmt.Errorf("Unsupported %s %s", grantObjectTypeAttr, objectType)
+		return fmt.Errorf("unsupported %s %s", grantObjectTypeAttr, objectType)
 	}
 }
 
@@ -214,7 +213,7 @@ func readDatabaseGrants(db *DBConnection, d *schema.ResourceData) error {
     decode(charindex('T',split_part(split_part(regexp_replace(replace(array_to_string(db.datacl, '|'), '"', ''),'group '||u.usename,'__avoidGroupPrivs__'), u.usename||'=', 2) ,'/',1)), 0,0,1) as temporary
   FROM pg_database db, pg_user u
   WHERE
-    db.datname=$1 
+    db.datname=$1
     AND u.usename=$2
 `
 	} else {
@@ -225,7 +224,7 @@ func readDatabaseGrants(db *DBConnection, d *schema.ResourceData) error {
     decode(charindex('T',split_part(split_part(replace(array_to_string(db.datacl, '|'), '"', ''),'group ' || gr.groname,2 ) ,'/',1)), 0,0,1) as temporary
   FROM pg_database db, pg_group gr
   WHERE
-    db.datname=$1 
+    db.datname=$1
     AND gr.groname=$2
 `
 	}
@@ -240,9 +239,7 @@ func readDatabaseGrants(db *DBConnection, d *schema.ResourceData) error {
 
 	log.Printf("[DEBUG] Collected database '%s' privileges for %s: %v", db.client.databaseName, entityName, privileges)
 
-	d.Set(grantPrivilegesAttr, privileges)
-
-	return nil
+	return d.Set(grantPrivilegesAttr, privileges)
 }
 
 func readSchemaGrants(db *DBConnection, d *schema.ResourceData) error {
@@ -260,7 +257,7 @@ func readSchemaGrants(db *DBConnection, d *schema.ResourceData) error {
     decode(charindex('U',split_part(split_part(regexp_replace(replace(array_to_string(ns.nspacl, '|'), '"', ''),'group '||u.usename,'__avoidGroupPrivs__'), u.usename||'=', 2) ,'/',1)), 0,0,1) as usage
   FROM pg_namespace ns, pg_user u
   WHERE
-    ns.nspname=$1 
+    ns.nspname=$1
     AND u.usename=$2
 `
 	} else {
@@ -271,7 +268,7 @@ func readSchemaGrants(db *DBConnection, d *schema.ResourceData) error {
     decode(charindex('U',split_part(split_part(replace(array_to_string(ns.nspacl, '|'), '"', ''),'group ' || gr.groname || '=',2 ) ,'/',1)), 0,0,1) as usage
   FROM pg_namespace ns, pg_group gr
   WHERE
-    ns.nspname=$1 
+    ns.nspname=$1
     AND gr.groname=$2
 `
 	}
@@ -286,9 +283,7 @@ func readSchemaGrants(db *DBConnection, d *schema.ResourceData) error {
 
 	log.Printf("[DEBUG] Collected schema '%s' privileges for  %s: %v", schemaName, entityName, privileges)
 
-	d.Set(grantPrivilegesAttr, privileges)
-
-	return nil
+	return d.Set(grantPrivilegesAttr, privileges)
 }
 
 func readTableGrants(db *DBConnection, d *schema.ResourceData) error {
@@ -384,7 +379,9 @@ func readTableGrants(db *DBConnection, d *schema.ResourceData) error {
 		}
 
 		if !privilegesSet.Equal(d.Get(grantPrivilegesAttr).(*schema.Set)) {
-			d.Set(grantPrivilegesAttr, privilegesSet)
+			if err := d.Set(grantPrivilegesAttr, privilegesSet); err != nil {
+				return err
+			}
 			break
 		}
 	}
@@ -409,7 +406,7 @@ func readCallableGrants(db *DBConnection, d *schema.ResourceData) error {
 		JOIN pg_namespace nsp ON nsp.oid = pr.pronamespace,
 	pg_user u
 	WHERE
-		nsp.nspname=$1 
+		nsp.nspname=$1
 		AND u.usename=$2
 		AND pr.prokind=ANY($3)
 `
@@ -423,7 +420,7 @@ func readCallableGrants(db *DBConnection, d *schema.ResourceData) error {
 		JOIN pg_namespace nsp ON nsp.oid = pr.pronamespace,
 	pg_group gr
 	WHERE
-		nsp.nspname=$1 
+		nsp.nspname=$1
     AND gr.groname=$2
 		AND pr.prokind=ANY($3)
 `
@@ -463,7 +460,9 @@ func readCallableGrants(db *DBConnection, d *schema.ResourceData) error {
 	}
 
 	if !privilegesSet.Equal(d.Get(grantPrivilegesAttr).(*schema.Set)) {
-		d.Set(grantPrivilegesAttr, privilegesSet)
+		if err := d.Set(grantPrivilegesAttr, privilegesSet); err != nil {
+			return err
+		}
 	}
 
 	return nil
@@ -522,7 +521,9 @@ func readLanguageGrants(db *DBConnection, d *schema.ResourceData) error {
 		}
 
 		if !privilegesSet.Equal(d.Get(grantPrivilegesAttr).(*schema.Set)) {
-			d.Set(grantPrivilegesAttr, privilegesSet)
+			if err := d.Set(grantPrivilegesAttr, privilegesSet); err != nil {
+				return err
+			}
 			break
 		}
 	}

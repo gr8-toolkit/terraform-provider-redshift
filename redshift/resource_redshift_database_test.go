@@ -14,9 +14,9 @@ import (
 func TestAccResourceRedshiftDatabase_Basic(t *testing.T) {
 	dbName := strings.ReplaceAll(acctest.RandomWithPrefix("tf_acc_resource_basic"), "-", "_")
 	resource.ParallelTest(t, resource.TestCase{
-		PreCheck:     func() { testAccPreCheck(t) },
-		Providers:    testAccProviders,
-		CheckDestroy: testAccCheckRedshiftDatabaseDestroy,
+		PreCheck:          func() { testAccPreCheck(t) },
+		ProviderFactories: testAccProviderFactories,
+		CheckDestroy:      testAccCheckRedshiftDatabaseDestroy,
 		Steps: []resource.TestStep{
 			{
 				Config: testAccResourceRedshiftDatabaseConfig_Basic(dbName),
@@ -39,7 +39,7 @@ func TestAccResourceRedshiftDatabase_Basic(t *testing.T) {
 func testAccResourceRedshiftDatabaseConfig_Basic(dbName string) string {
 	return fmt.Sprintf(`
 resource "redshift_database" "db" {
-	%[1]s = %[2]q 
+	%[1]s = %[2]q
 }
 	`, databaseNameAttr, dbName)
 }
@@ -69,9 +69,9 @@ resource "redshift_user" "user" {
 	`, databaseNameAttr, dbNameNew, databaseOwnerAttr, userNameAttr, databaseConnLimitAttr, userName)
 
 	resource.ParallelTest(t, resource.TestCase{
-		PreCheck:     func() { testAccPreCheck(t) },
-		Providers:    testAccProviders,
-		CheckDestroy: testAccCheckRedshiftDatabaseDestroy,
+		PreCheck:          func() { testAccPreCheck(t) },
+		ProviderFactories: testAccProviderFactories,
+		CheckDestroy:      testAccCheckRedshiftDatabaseDestroy,
 		Steps: []resource.TestStep{
 			{
 				Config: configCreate,
@@ -93,14 +93,6 @@ resource "redshift_user" "user" {
 			},
 		},
 	})
-}
-
-func testAccResourceRedshiftDatabaseConfig_basic(dbName string) string {
-	return fmt.Sprintf(`
-resource "redshift_database" "db" {
-	%[1]s = %[2]q
-}
-	`, databaseNameAttr, dbName)
 }
 
 func testAccCheckRedshiftDatabaseDestroy(s *terraform.State) error {

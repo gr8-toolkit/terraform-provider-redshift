@@ -65,5 +65,3 @@ Required:
 Optional:
 
 - **account_id** (String) The AWS account ID of the producer cluster.
-
-

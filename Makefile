@@ -37,7 +37,7 @@ changelog: ## Generate CHANGELOG
 		-v $$PWD:/usr/local/src/your-app \
 		-e CHANGELOG_GITHUB_TOKEN=$$CHANGELOG_GITHUB_TOKEN \
 		ferrarimarco/github-changelog-generator \
-		--user brainly \
+		--user gr8-toolkit \
 		--project terraform-provider-redshift \
 		--future-release $$RELEASE_VERSION
 	@git add CHANGELOG.md && git commit -m "Release $$RELEASE_VERSION"
@@ -55,4 +55,3 @@ doc: ## Generate documentation files
 .PHONY: help
 help: ## Show this help message
 	@grep -Eh '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-30s\033[0m %s\n", $$1, $$2}'
-

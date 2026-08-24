@@ -1,6 +1,7 @@
 package redshift
 
 import (
+	"context"
 	"database/sql"
 	"encoding/csv"
 	"fmt"
@@ -8,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/hashicorp/terraform-plugin-sdk/v2/diag"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/schema"
 	"github.com/lib/pq"
 )
@@ -21,12 +23,7 @@ const (
 )
 
 // startTransaction starts a new DB transaction on the specified database.
-// If the database is specified and different from the one configured in the provider,
-// it will create a new connection pool if needed.
-func startTransaction(client *Client, database string) (*sql.Tx, error) {
-	if database != "" && database != client.databaseName {
-		client = client.config.NewClient(database)
-	}
+func startTransaction(client *Client) (*sql.Tx, error) {
 	db, err := client.Connect()
 	if err != nil {
 		return nil, err
@@ -41,7 +38,7 @@ func startTransaction(client *Client, database string) (*sql.Tx, error) {
 }
 
 // deferredRollback can be used to rollback a transaction in a defer.
-// It will log an error if it fails
+// It will log an error if it fails.
 func deferredRollback(txn *sql.Tx) {
 	err := txn.Rollback()
 	switch {
@@ -58,8 +55,8 @@ func deferredRollback(txn *sql.Tx) {
 // single quotes in SQL (i.e. fmt.Sprintf(`'%s'`, pqQuoteLiteral("str"))).  See
 // quote_literal_internal() in postgresql/backend/utils/adt/quote.c:77.
 func pqQuoteLiteral(in string) string {
-	in = strings.Replace(in, `\`, `\\`, -1)
-	in = strings.Replace(in, `'`, `''`, -1)
+	in = strings.ReplaceAll(in, `\`, `\\`)
+	in = strings.ReplaceAll(in, `'`, `''`)
 	return in
 }
 
@@ -80,7 +77,10 @@ func getSchemaIDFromName(tx *sql.Tx, schema string) (schemaID int, err error) {
 
 func RedshiftResourceFunc(fn func(*DBConnection, *schema.ResourceData) error) func(*schema.ResourceData, interface{}) error {
 	return func(d *schema.ResourceData, meta interface{}) error {
-		client := meta.(*Client)
+		client, ok := meta.(*Client)
+		if !ok {
+			return fmt.Errorf("unexpected provider meta type %T", meta)
+		}
 
 		db, err := client.Connect()
 		if err != nil {
@@ -111,7 +111,10 @@ func RedshiftResourceRetryOnPQErrors(fn func(*DBConnection, *schema.ResourceData
 
 func RedshiftResourceExistsFunc(fn func(*DBConnection, *schema.ResourceData) (bool, error)) func(*schema.ResourceData, interface{}) (bool, error) {
 	return func(d *schema.ResourceData, meta interface{}) (bool, error) {
-		client := meta.(*Client)
+		client, ok := meta.(*Client)
+		if !ok {
+			return false, fmt.Errorf("unexpected provider meta type %T", meta)
+		}
 
 		db, err := client.Connect()
 		if err != nil {
@@ -119,6 +122,25 @@ func RedshiftResourceExistsFunc(fn func(*DBConnection, *schema.ResourceData) (bo
 		}
 
 		return fn(db, d)
+	}
+}
+
+// RedshiftResourceFuncContext wraps a DBConnection-based function into the
+// context-aware signature required by CreateContext/ReadContext/UpdateContext/DeleteContext.
+func RedshiftResourceFuncContext(fn func(*DBConnection, *schema.ResourceData) error) func(context.Context, *schema.ResourceData, interface{}) diag.Diagnostics {
+	return func(_ context.Context, d *schema.ResourceData, meta interface{}) diag.Diagnostics {
+		client, ok := meta.(*Client)
+		if !ok {
+			return diag.Errorf("unexpected provider meta type %T", meta)
+		}
+		db, err := client.Connect()
+		if err != nil {
+			return diag.FromErr(err)
+		}
+		if err := fn(db, d); err != nil {
+			return diag.FromErr(err)
+		}
+		return nil
 	}
 }
 
@@ -211,24 +233,32 @@ func appendIfTrue(condition bool, item string, list *[]string) {
 func setToPgIdentList(identifiers *schema.Set, prefix string) string {
 	quoted := make([]string, identifiers.Len())
 	for i, identifier := range identifiers.List() {
+		str, ok := identifier.(string)
+		if !ok {
+			continue
+		}
 		if prefix == "" {
-			quoted[i] = pq.QuoteIdentifier(identifier.(string))
+			quoted[i] = pq.QuoteIdentifier(str)
 		} else {
-			quoted[i] = fmt.Sprintf("%s.%s", pq.QuoteIdentifier(prefix), pq.QuoteIdentifier(identifier.(string)))
+			quoted[i] = fmt.Sprintf("%s.%s", pq.QuoteIdentifier(prefix), pq.QuoteIdentifier(str))
 		}
 	}
 
 	return strings.Join(quoted, ",")
 }
 
-// Quoted identifiers somehow does not work for grants/revokes on functions and procedures
+// Quoted identifiers somehow does not work for grants/revokes on functions and procedures.
 func setToPgIdentListNotQuoted(identifiers *schema.Set, prefix string) string {
 	quoted := make([]string, identifiers.Len())
 	for i, identifier := range identifiers.List() {
+		str, ok := identifier.(string)
+		if !ok {
+			continue
+		}
 		if prefix == "" {
-			quoted[i] = identifier.(string)
+			quoted[i] = str
 		} else {
-			quoted[i] = fmt.Sprintf("%s.%s", prefix, identifier.(string))
+			quoted[i] = fmt.Sprintf("%s.%s", prefix, str)
 		}
 	}
 
@@ -242,7 +272,11 @@ func stripArgumentsFromCallablesDefinitions(defs *schema.Set) []string {
 
 	names := make([]string, defs.Len())
 	for _, def := range defs.List() {
-		names = append(names, parser(def.(string)))
+		str, ok := def.(string)
+		if !ok {
+			continue
+		}
+		names = append(names, parser(str))
 	}
 	return names
 }

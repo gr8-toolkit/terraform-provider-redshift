@@ -33,15 +33,15 @@ var defaultPrivilegesObjectTypesCodes = map[string]string{
 func redshiftDefaultPrivileges() *schema.Resource {
 	return &schema.Resource{
 		Description: `Defines the default set of access privileges to be applied to objects that are created in the future by the specified user. By default, users can change only their own default access privileges. Only a superuser can specify default privileges for other users.`,
-		Read:        RedshiftResourceFunc(resourceRedshiftDefaultPrivilegesRead),
-		Create: RedshiftResourceFunc(
+		ReadContext: RedshiftResourceFuncContext(resourceRedshiftDefaultPrivilegesRead),
+		CreateContext: RedshiftResourceFuncContext(
 			RedshiftResourceRetryOnPQErrors(resourceRedshiftDefaultPrivilegesCreate),
 		),
-		Delete: RedshiftResourceFunc(
+		DeleteContext: RedshiftResourceFuncContext(
 			RedshiftResourceRetryOnPQErrors(resourceRedshiftDefaultPrivilegesDelete),
 		),
 		// Since we revoke all when creating, we can use create as update
-		Update: RedshiftResourceFunc(
+		UpdateContext: RedshiftResourceFuncContext(
 			RedshiftResourceRetryOnPQErrors(resourceRedshiftDefaultPrivilegesCreate),
 		),
 
@@ -98,7 +98,7 @@ func redshiftDefaultPrivileges() *schema.Resource {
 func resourceRedshiftDefaultPrivilegesDelete(db *DBConnection, d *schema.ResourceData) error {
 	revokeAlterDefaultQuery := createAlterDefaultsRevokeQuery(d)
 
-	tx, err := startTransaction(db.client, "")
+	tx, err := startTransaction(db.client)
 	if err != nil {
 		return err
 	}
@@ -121,10 +121,10 @@ func resourceRedshiftDefaultPrivilegesCreate(db *DBConnection, d *schema.Resourc
 	}
 
 	if !validatePrivileges(privileges, objectType) {
-		return fmt.Errorf("Invalid privileges list '%v' for object type '%s'", privileges, objectType)
+		return fmt.Errorf("invalid privileges list '%v' for object type '%s'", privileges, objectType)
 	}
 
-	tx, err := startTransaction(db.client, "")
+	tx, err := startTransaction(db.client)
 	if err != nil {
 		return err
 	}
@@ -161,7 +161,7 @@ func resourceRedshiftDefaultPrivilegesReadImpl(db *DBConnection, d *schema.Resou
 	schemaName, schemaNameSet := d.GetOk(defaultPrivilegesSchemaAttr)
 	ownerName := d.Get(defaultPrivilegesOwnerAttr).(string)
 
-	tx, err := startTransaction(db.client, "")
+	tx, err := startTransaction(db.client)
 	if err != nil {
 		return err
 	}
@@ -219,7 +219,7 @@ func readGroupTableDefaultPrivileges(tx *sql.Tx, d *schema.ResourceData, entityI
 
 	if entityIsUser {
 		query = `
-	      SELECT 
+	      SELECT
 		decode(charindex('r',split_part(split_part(regexp_replace(replace(array_to_string(defaclacl, '|'), '"', ''), 'group '||u.usename), u.usename||'=', 2) ,'/',1)),0,0,1) as select,
 		decode(charindex('w',split_part(split_part(regexp_replace(replace(array_to_string(defaclacl, '|'), '"', ''), 'group '||u.usename), u.usename||'=', 2) ,'/',1)),0,0,1) as update,
 		decode(charindex('a',split_part(split_part(regexp_replace(replace(array_to_string(defaclacl, '|'), '"', ''), 'group '||u.usename), u.usename||'=', 2) ,'/',1)),0,0,1) as insert,
@@ -229,7 +229,7 @@ func readGroupTableDefaultPrivileges(tx *sql.Tx, d *schema.ResourceData, entityI
 		decode(charindex('R',split_part(split_part(regexp_replace(replace(array_to_string(defaclacl, '|'), '"', ''), 'group '||u.usename), u.usename||'=', 2) ,'/',1)),0,0,1) as rule,
 		decode(charindex('t',split_part(split_part(regexp_replace(replace(array_to_string(defaclacl, '|'), '"', ''), 'group '||u.usename), u.usename||'=', 2) ,'/',1)),0,0,1) as trigger
 	      FROM pg_user u, pg_default_acl acl
-	      WHERE 
+	      WHERE
 		acl.defaclnamespace = $1
 		AND regexp_replace(replace(array_to_string(acl.defaclacl, '|'), '"', ''), 'group '||u.usename) LIKE '%' || u.usename || '=%'
 		AND u.usesysid = $2
@@ -238,7 +238,7 @@ func readGroupTableDefaultPrivileges(tx *sql.Tx, d *schema.ResourceData, entityI
 		`
 	} else {
 		query = `
-	      SELECT 
+	      SELECT
 		decode(charindex('r',split_part(split_part(replace(array_to_string(defaclacl, '|'), '"', ''),'group ' || gr.groname,2 ) ,'/',1)),0,0,1) as select,
 		decode(charindex('w',split_part(split_part(replace(array_to_string(defaclacl, '|'), '"', ''),'group ' || gr.groname,2 ) ,'/',1)),0,0,1) as update,
 		decode(charindex('a',split_part(split_part(replace(array_to_string(defaclacl, '|'), '"', ''),'group ' || gr.groname,2 ) ,'/',1)),0,0,1) as insert,
@@ -248,7 +248,7 @@ func readGroupTableDefaultPrivileges(tx *sql.Tx, d *schema.ResourceData, entityI
 		decode(charindex('R',split_part(split_part(replace(array_to_string(defaclacl, '|'), '"', ''),'group ' || gr.groname,2 ) ,'/',1)),0,0,1) as rule,
 		decode(charindex('t',split_part(split_part(replace(array_to_string(defaclacl, '|'), '"', ''),'group ' || gr.groname,2 ) ,'/',1)),0,0,1) as trigger
 	      FROM pg_group gr, pg_default_acl acl
-	      WHERE 
+	      WHERE
 		acl.defaclnamespace = $1
 		AND replace(array_to_string(acl.defaclacl, '|'), '"', '') LIKE '%' || 'group ' || gr.groname || '=%'
 		AND gr.grosysid = $2
@@ -281,9 +281,7 @@ func readGroupTableDefaultPrivileges(tx *sql.Tx, d *schema.ResourceData, entityI
 
 	log.Printf("[DEBUG] Collected privileges for ID %d: %v\n", entityID, privileges)
 
-	d.Set(defaultPrivilegesPrivilegesAttr, privileges)
-
-	return nil
+	return d.Set(defaultPrivilegesPrivilegesAttr, privileges)
 }
 
 func generateDefaultPrivilegesID(d *schema.ResourceData) string {

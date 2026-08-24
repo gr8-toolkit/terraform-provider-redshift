@@ -24,5 +24,3 @@ data "redshift_namespace" "namespace" {
 ### Optional
 
 - **id** (String) The ID of this resource.
-
-
