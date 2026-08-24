@@ -31,6 +31,9 @@ func TestAccRedshiftUser_Basic(t *testing.T) {
 					resource.TestCheckResourceAttr("redshift_user.with_email", "name", "John-and-Jane.doe@example.com"),
 					testAccCheckRedshiftUserCanLogin("John-and-Jane.doe@example.com", "Foobarbaz1"),
 
+					testAccCheckRedshiftUserExists("hashed_password"),
+					testAccCheckRedshiftUserCanLogin("hashed_password", "Foobarbaz2"),
+
 					testAccCheckRedshiftUserExists("user_defaults"),
 					resource.TestCheckResourceAttr("redshift_user.user_with_defaults", "name", "user_defaults"),
 					resource.TestCheckResourceAttr("redshift_user.user_with_defaults", "superuser", "false"),
@@ -39,6 +42,7 @@ func TestAccRedshiftUser_Basic(t *testing.T) {
 					resource.TestCheckResourceAttr("redshift_user.user_with_defaults", "password", ""),
 					resource.TestCheckResourceAttr("redshift_user.user_with_defaults", "valid_until", "infinity"),
 					resource.TestCheckResourceAttr("redshift_user.user_with_defaults", "syslog_access", "RESTRICTED"),
+					resource.TestCheckResourceAttr("redshift_user.user_with_defaults", "session_timeout", "0"),
 
 					testAccCheckRedshiftUserExists("user_create_database"),
 					resource.TestCheckResourceAttr("redshift_user.user_with_create_database", "name", "user_create_database"),
@@ -51,6 +55,10 @@ func TestAccRedshiftUser_Basic(t *testing.T) {
 					testAccCheckRedshiftUserExists("user_superuser"),
 					resource.TestCheckResourceAttr("redshift_user.user_superuser", "name", "user_superuser"),
 					resource.TestCheckResourceAttr("redshift_user.user_superuser", "superuser", "true"),
+
+					testAccCheckRedshiftUserExists("user_timeout"),
+					resource.TestCheckResourceAttr("redshift_user.user_timeout", "name", "user_timeout"),
+					resource.TestCheckResourceAttr("redshift_user.user_timeout", "session_timeout", "60"),
 				),
 			},
 		},
@@ -72,6 +80,15 @@ resource "redshift_user" "update_user" {
   name = "update_user2"
   connection_limit = 5
   password = "Foobarbaz5"
+  syslog_access = "UNRESTRICTED"
+  create_database = true
+}
+`
+	var configUpdate2 = `
+resource "redshift_user" "update_user" {
+  name = "update_user2"
+  connection_limit = 5
+  password = "md508d5d11f1f947091b312fb36b25e621f"
   syslog_access = "UNRESTRICTED"
   create_database = true
 }
@@ -105,6 +122,14 @@ resource "redshift_user" "update_user" {
 					resource.TestCheckResourceAttr("redshift_user.update_user", "valid_until", "infinity"),
 					resource.TestCheckResourceAttr("redshift_user.update_user", "syslog_access", "UNRESTRICTED"),
 					resource.TestCheckResourceAttr("redshift_user.update_user", "create_database", "true"),
+				),
+			},
+			{
+				Config: configUpdate2,
+				Check: resource.ComposeTestCheckFunc(
+					testAccCheckRedshiftUserExists("update_user2"),
+					testAccCheckRedshiftUserCanLogin("update_user2", "Foobarbaz6"),
+					resource.TestCheckResourceAttr("redshift_user.update_user", "password", "md508d5d11f1f947091b312fb36b25e621f"),
 				),
 			},
 			// apply the first one again to check if all parameters roll back properly
@@ -229,6 +254,63 @@ resource "redshift_user" "superuser" {
 	})
 }
 
+func TestAccRedshiftUser_SuperuserSyslogAccess(t *testing.T) {
+	tests := map[string]struct {
+		isSuperuser  bool
+		syslogAccess string
+		expectError  *regexp.Regexp
+	}{
+		"(not superuser) UNRESTRICTED syslog access": {
+			isSuperuser:  false,
+			syslogAccess: defaultUserSuperuserSyslogAccess,
+		},
+		"(not superuser) RESTRICTED syslog access": {
+			isSuperuser:  false,
+			syslogAccess: defaultUserSyslogAccess,
+		},
+		"(superuser) RESTRICTED syslog access": {
+			isSuperuser:  true,
+			syslogAccess: defaultUserSyslogAccess,
+			expectError:  regexp.MustCompile("Superusers must have syslog access set to UNRESTRICTED."),
+		},
+		"(superuser) UNRESTRICTED syslog access": {
+			isSuperuser:  true,
+			syslogAccess: defaultUserSuperuserSyslogAccess,
+		},
+	}
+
+	for name, test := range tests {
+		t.Run(name, func(t *testing.T) {
+			userName := strings.ReplaceAll(acctest.RandomWithPrefix("tf_acc_superuser"), "-", "_")
+			config := fmt.Sprintf(`
+			locals {
+				is_superuser = %[2]t
+			}
+
+			resource "redshift_user" "superuser" {
+			  name = %[1]q
+			  superuser = local.is_superuser
+			  password  = "foobar12355#"
+			  syslog_access = %[3]q
+			}
+			`, userName, test.isSuperuser, test.syslogAccess)
+
+			resource.Test(t, resource.TestCase{
+				PreCheck:          func() { testAccPreCheck(t) },
+				ProviderFactories: testAccProviderFactories,
+				CheckDestroy:      testAccCheckRedshiftUserDestroy,
+				Steps: []resource.TestStep{
+					{
+						Config:      config,
+						ExpectError: test.expectError,
+					},
+				},
+			})
+		})
+	}
+
+}
+
 func TestAccRedshiftUser_SuperuserUnknownPassword(t *testing.T) {
 	userName := strings.ReplaceAll(acctest.RandomWithPrefix("tf_acc_superuser"), "-", "_")
 	config := fmt.Sprintf(`
@@ -350,6 +432,11 @@ resource "redshift_user" "with_email" {
   password = "Foobarbaz1"
 }
 
+resource "redshift_user" "with_hashed_password" {
+  name = "hashed_password"
+  password = "md5ad3b897bab2474bc7e408326cb18c42f"
+}
+
 resource "redshift_user" "user_with_defaults" {
   name = "user_defaults"
   valid_until = "infinity"
@@ -373,6 +460,12 @@ resource "redshift_user" "user_superuser" {
   name = "user_superuser"
   superuser = true
   password = "FooBarBaz123"
+}
+
+resource "redshift_user" "user_timeout" {
+  name = "user_timeout"
+  password = "FooBarBaz123"
+  session_timeout = 60
 }
 `
 

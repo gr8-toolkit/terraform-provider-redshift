@@ -2,7 +2,6 @@ package redshift
 
 import (
 	"context"
-	"crypto/md5"
 	"database/sql"
 	"fmt"
 	"log"
@@ -16,13 +15,14 @@ import (
 )
 
 const (
-	userNameAttr         = "name"
-	userPasswordAttr     = "password"
-	userValidUntilAttr   = "valid_until"
-	userCreateDBAttr     = "create_database"
-	userConnLimitAttr    = "connection_limit"
-	userSyslogAccessAttr = "syslog_access"
-	userSuperuserAttr    = "superuser"
+	userNameAttr           = "name"
+	userPasswordAttr       = "password"
+	userValidUntilAttr     = "valid_until"
+	userCreateDBAttr       = "create_database"
+	userConnLimitAttr      = "connection_limit"
+	userSyslogAccessAttr   = "syslog_access"
+	userSuperuserAttr      = "superuser"
+	userSessionTimeoutAttr = "session_timeout"
 
 	// defaults.
 	defaultUserSyslogAccess          = "RESTRICTED"
@@ -56,11 +56,17 @@ Amazon Redshift user accounts can only be created and dropped by a database supe
 		},
 		CustomizeDiff: func(_ context.Context, d *schema.ResourceDiff, p interface{}) error {
 			isSuperuser := d.Get(userSuperuserAttr).(bool)
-			isPasswordKnown := d.NewValueKnown(userPasswordAttr)
 
+			isPasswordKnown := d.NewValueKnown(userPasswordAttr)
 			password, hasPassword := d.GetOk(userPasswordAttr)
 			if isSuperuser && isPasswordKnown && (!hasPassword || password.(string) == "") {
 				return fmt.Errorf("users that are superusers must define a password")
+			}
+
+			isSyslogAccessKnown := d.NewValueKnown(userSyslogAccessAttr)
+			syslogAccess, hasSyslogAccess := d.GetOk(userSyslogAccessAttr)
+			if isSuperuser && isSyslogAccessKnown && hasSyslogAccess && syslogAccess != defaultUserSuperuserSyslogAccess {
+				return fmt.Errorf("superusers must have syslog access set to %s", defaultUserSuperuserSyslogAccess)
 			}
 
 			return nil
@@ -79,7 +85,7 @@ Amazon Redshift user accounts can only be created and dropped by a database supe
 				Type:        schema.TypeString,
 				Optional:    true,
 				Sensitive:   true,
-				Description: "Sets the user's password. Users can change their own passwords, unless the password is disabled. To disable password, omit this parameter or set it to `null`.",
+				Description: "Sets the user's password. Users can change their own passwords, unless the password is disabled. To disable password, omit this parameter or set it to `null`. Can also be a hashed password rather than the plaintext password. Please refer to the Redshift [CREATE USER documentation](https://docs.aws.amazon.com/redshift/latest/dg/r_CREATE_USER.html) for information on creating a password hash.",
 			},
 			userValidUntilAttr: {
 				Type:        schema.TypeString,
@@ -116,11 +122,17 @@ Amazon Redshift user accounts can only be created and dropped by a database supe
 				},
 			},
 			userSuperuserAttr: {
-				ConflictsWith: []string{userSyslogAccessAttr},
-				Type:          schema.TypeBool,
-				Optional:      true,
-				Default:       false,
-				Description:   `Determine whether the user is a superuser with all database privileges.`,
+				Type:        schema.TypeBool,
+				Optional:    true,
+				Default:     false,
+				Description: `Determine whether the user is a superuser with all database privileges.`,
+			},
+			userSessionTimeoutAttr: {
+				Type:         schema.TypeInt,
+				Optional:     true,
+				Default:      0,
+				Description:  "The maximum time in seconds that a session remains inactive or idle. The range is 60 seconds (one minute) to 1,728,000 seconds (20 days). If no session timeout is set for the user, the cluster setting applies.",
+				ValidateFunc: validation.All(validation.IntAtLeast(60), validation.IntAtMost(1728000)),
 			},
 		},
 	}
@@ -147,6 +159,7 @@ func resourceRedshiftUserCreate(db *DBConnection, d *schema.ResourceData) error 
 		sqlKey string
 	}{
 		{userConnLimitAttr, "CONNECTION LIMIT"},
+		{userSessionTimeoutAttr, "SESSION TIMEOUT"},
 	}
 
 	boolOpts := []struct {
@@ -158,7 +171,6 @@ func resourceRedshiftUserCreate(db *DBConnection, d *schema.ResourceData) error 
 		{userCreateDBAttr, "CREATEDB", "NOCREATEDB"},
 	}
 
-	userName := d.Get(userNameAttr).(string)
 	createOpts := make([]string, 0, len(stringOpts)+len(intOpts)+len(boolOpts))
 	for _, opt := range stringOpts {
 		v, ok := d.GetOk(opt.hclKey)
@@ -182,7 +194,7 @@ func resourceRedshiftUserCreate(db *DBConnection, d *schema.ResourceData) error 
 		if val != "" {
 			switch opt.hclKey {
 			case userPasswordAttr:
-				createOpts = append(createOpts, fmt.Sprintf("%s '%s'", opt.sqlKey, md5Password(userName, val)))
+				createOpts = append(createOpts, fmt.Sprintf("%s '%s'", opt.sqlKey, pqQuoteLiteral(val)))
 			case userValidUntilAttr:
 				switch {
 				case v.(string) == "", strings.ToLower(v.(string)) == "infinity":
@@ -200,7 +212,11 @@ func resourceRedshiftUserCreate(db *DBConnection, d *schema.ResourceData) error 
 
 	for _, opt := range intOpts {
 		val := d.Get(opt.hclKey).(int)
-		createOpts = append(createOpts, fmt.Sprintf("%s %d", opt.sqlKey, val))
+		if opt.hclKey == userSessionTimeoutAttr && val != 0 {
+			createOpts = append(createOpts, fmt.Sprintf("%s %d", opt.sqlKey, val))
+		} else if opt.hclKey != userSessionTimeoutAttr {
+			createOpts = append(createOpts, fmt.Sprintf("%s %d", opt.sqlKey, val))
+		}
 	}
 
 	for _, opt := range boolOpts {
@@ -212,6 +228,7 @@ func resourceRedshiftUserCreate(db *DBConnection, d *schema.ResourceData) error 
 		createOpts = append(createOpts, valStr)
 	}
 
+	userName := d.Get(userNameAttr).(string)
 	createStr := strings.Join(createOpts, " ")
 	sql := fmt.Sprintf("CREATE USER %s WITH %s", pq.QuoteIdentifier(userName), createStr)
 
@@ -239,6 +256,7 @@ func resourceRedshiftUserRead(db *DBConnection, d *schema.ResourceData) error {
 
 func resourceRedshiftUserReadImpl(db *DBConnection, d *schema.ResourceData) error {
 	var userName, userValidUntil, userConnLimit, userSyslogAccess, userInfoTable string
+	var userSessionTimeout string
 	var userSuperuser, userCreateDB bool
 	var columns []string
 
@@ -249,6 +267,7 @@ func resourceRedshiftUserReadImpl(db *DBConnection, d *schema.ResourceData) erro
 			"usesuper",
 			"'RESTRICTED'",
 			"'UNLIMITED'",
+			"'0'",
 		}
 		userInfoTable = "pg_user"
 	} else {
@@ -258,6 +277,7 @@ func resourceRedshiftUserReadImpl(db *DBConnection, d *schema.ResourceData) erro
 			"usesuper",
 			"syslogaccess",
 			`COALESCE(useconnlimit::TEXT, 'UNLIMITED')`,
+			"sessiontimeout",
 		}
 		userInfoTable = "svl_user_info"
 	}
@@ -268,6 +288,7 @@ func resourceRedshiftUserReadImpl(db *DBConnection, d *schema.ResourceData) erro
 		&userSuperuser,
 		&userSyslogAccess,
 		&userConnLimit,
+		&userSessionTimeout,
 	}
 
 	useSysID := d.Id()
@@ -299,6 +320,11 @@ func resourceRedshiftUserReadImpl(db *DBConnection, d *schema.ResourceData) erro
 		}
 	}
 
+	userSessionTimeoutNumber, err := strconv.Atoi(userSessionTimeout)
+	if err != nil {
+		return err
+	}
+
 	if err := d.Set(userNameAttr, userName); err != nil {
 		return err
 	}
@@ -315,6 +341,9 @@ func resourceRedshiftUserReadImpl(db *DBConnection, d *schema.ResourceData) erro
 		return err
 	}
 	if err := d.Set(userValidUntilAttr, userValidUntil); err != nil {
+		return err
+	}
+	if err := d.Set(userSessionTimeoutAttr, userSessionTimeoutNumber); err != nil {
 		return err
 	}
 
@@ -461,6 +490,10 @@ func resourceRedshiftUserUpdate(db *DBConnection, d *schema.ResourceData) error 
 		return err
 	}
 
+	if err := setUserSessionTimeout(tx, d); err != nil {
+		return err
+	}
+
 	if err := tx.Commit(); err != nil {
 		return fmt.Errorf("could not commit transaction: %w", err)
 	}
@@ -519,6 +552,26 @@ func setUserConnLimit(tx *sql.Tx, d *schema.ResourceData) error {
 	sql := fmt.Sprintf("ALTER USER %s CONNECTION LIMIT %d", pq.QuoteIdentifier(userName), connLimit)
 	if _, err := tx.Exec(sql); err != nil {
 		return fmt.Errorf("error updating user CONNECTION LIMIT: %w", err)
+	}
+
+	return nil
+}
+
+func setUserSessionTimeout(tx *sql.Tx, d *schema.ResourceData) error {
+	if !d.HasChange(userSessionTimeoutAttr) {
+		return nil
+	}
+
+	sessionTimeout := d.Get(userSessionTimeoutAttr).(int)
+	userName := d.Get(userNameAttr).(string)
+	sql := ""
+	if sessionTimeout == 0 {
+		sql = fmt.Sprintf("ALTER USER %s RESET SESSION TIMEOUT", pq.QuoteIdentifier(userName))
+	} else {
+		sql = fmt.Sprintf("ALTER USER %s SESSION TIMEOUT %d", pq.QuoteIdentifier(userName), sessionTimeout)
+	}
+	if _, err := tx.Exec(sql); err != nil {
+		return fmt.Errorf("error updating user SESSION TIMEOUT: %w", err)
 	}
 
 	return nil
@@ -613,14 +666,4 @@ func getDefaultSyslogAccess(d *schema.ResourceData) string {
 	}
 
 	return defaultUserSyslogAccess
-}
-
-// Generates an md5 password for the user.
-// Per https://docs.aws.amazon.com/redshift/latest/dg/r_CREATE_USER.html,
-// the process is:
-// 1. concatenate the password and username
-// 2. convert the concatenated string to an md5 hash in hex format
-// 3. prefix the result with 'md5' (unquoted).
-func md5Password(userName string, password string) string {
-	return fmt.Sprintf("md5%x", md5.Sum([]byte(fmt.Sprintf("%s%s", password, userName))))
 }

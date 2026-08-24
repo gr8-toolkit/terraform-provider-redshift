@@ -23,7 +23,7 @@ repos:
       - id: markdownlint
         args:
           - --fix
-        exclude: ^docs/
+        exclude: ^(docs/|CHANGELOG\.md)
         files: \.(md)$
   - repo: https://github.com/golangci/golangci-lint
     rev: v2.13.1
