@@ -27,16 +27,21 @@ resource "redshift_group" "staff" {
 
 ### Required
 
-- **name** (String) Name of the user group. Group names beginning with two underscores are reserved for Amazon Redshift internal use.
+- `name` (String) Name of the user group. Group names beginning with two underscores are reserved for Amazon Redshift internal use.
 
 ### Optional
 
-- **id** (String) The ID of this resource.
-- **users** (Set of String) List of the user names to add to the group
+- `users` (Set of String) List of the user names to add to the group
+
+### Read-Only
+
+- `id` (String) The ID of this resource.
 
 ## Import
 
 Import is supported using the following syntax:
+
+The [`terraform import` command](https://developer.hashicorp.com/terraform/cli/commands/import) can be used, for example:
 
 ```shell
 # Import group with grosysid: SELECT grosysid FROM pg_group WHERE groname = 'mygroup'
