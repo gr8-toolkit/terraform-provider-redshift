@@ -1,98 +1,100 @@
 # Terraform Provider for AWS Redshift
 
-This provider allows to manage with Terraform [AWS Redshift](https://aws.amazon.com/redshift/)
-objects like users, groups, schemas, etc..
+[![CI](https://github.com/gr8-toolkit/terraform-provider-redshift/actions/workflows/ci.yml/badge.svg)](https://github.com/gr8-toolkit/terraform-provider-redshift/actions/workflows/ci.yml)
+[![prek](https://img.shields.io/badge/prek-enabled-brightgreen)](https://github.com/j178/prek)
+[![Terraform Registry](https://img.shields.io/badge/terraform-registry-623CE4?logo=terraform)](https://registry.terraform.io/providers/gr8-toolkit/redshift/latest/docs)
+[![OpenTofu Registry](https://img.shields.io/badge/opentofu-registry-FFDA18?logo=opentofu&logoColor=000)](https://registry.opentofu.org/providers/gr8-toolkit/redshift)
 
-It's published on the [Terraform registry](https://registry.terraform.io/providers/gr8-toolkit/redshift/latest/docs).
+A Terraform provider for managing [AWS Redshift](https://aws.amazon.com/redshift/) objects:
+users, groups, schemas, databases, grants, default privileges, and datashares.
+
+Published on the
+[Terraform Registry](https://registry.terraform.io/providers/gr8-toolkit/redshift/latest/docs)
+and the
+[OpenTofu Registry](https://registry.opentofu.org/providers/gr8-toolkit/redshift).
 
 ## Requirements
 
-- [Terraform](https://www.terraform.io/downloads.html) 1.8.x
-- [Go](https://golang.org/doc/install) 1.27 (to build the provider plugin)
+- [Terraform](https://www.terraform.io/downloads.html) >= 1.8 or
+  [OpenTofu](https://opentofu.org/docs/intro/install/) >= 1.6
+- [Go](https://golang.org/doc/install) >= 1.26 (to build the provider from source)
 
-## Building The Provider
+## Usage
 
-```sh
-git clone git@github.com:gr8-toolkit/terraform-provider-redshift
+```hcl
+terraform {
+  required_providers {
+    redshift = {
+      source  = "gr8-toolkit/redshift"
+      version = "~> 1.0"
+    }
+  }
+}
+
+provider "redshift" {
+  host     = "my-cluster.us-east-1.redshift.amazonaws.com"
+  port     = 5439
+  username = "admin"
+  password = var.redshift_password
+  database = "dev"
+}
 ```
 
-Enter the provider directory and build the provider
+See the [registry documentation](https://registry.terraform.io/providers/gr8-toolkit/redshift/latest/docs)
+for the full list of resources and data sources.
+
+## Building from Source
 
 ```sh
+git clone git@github.com:gr8-toolkit/terraform-provider-redshift.git
 cd terraform-provider-redshift
 make build
 ```
 
-## Development
-
-If you're new to provider development, a good place to start is the [Extending
-Terraform](https://www.terraform.io/docs/extend/index.html) docs.
-
-### Running Tests
-
-Acceptance tests require a running real AWS Redshift cluster.
-
-```sh
-REDSHIFT_HOST=<cluster ip or DNS>
-REDSHIFT_USER=root
-REDSHIFT_DATABASE=redshift
-REDSHIFT_PASSWORD=<password>
-make testacc
-```
-
-If your cluster is only accessible from within the VPC, you can connect via a socks proxy:
-
-```sh
-ALL_PROXY=socks5[h]://[<socks-user>:<socks-password>@]<socks-host>[:<socks-port>]
-NO_PROXY=127.0.0.1,192.168.0.0/24,*.example.com,localhost
-```
+`make build` runs `gofmt`, then `go install`, placing the binary in `$GOPATH/bin`.
 
 ## Documentation
 
-Documentation is generated with
-[tfplugindocs](https://github.com/hashicorp/terraform-plugin-docs). Generated
-files are in `docs/` and should not be updated manually. They are derived from:
+Docs are generated from schema `Description` fields and the
+[examples/](./examples) directory using
+[tfplugindocs](https://github.com/hashicorp/terraform-plugin-docs).
+Files under `docs/` are auto-generated — do not edit them manually.
 
-- Schema `Description` fields in the provider Go code.
-- [examples/](./examples)
-- [templates/](./templates)
+Regenerate after changing the schema or examples:
 
-Use `go generate` to update generated docs.
+```sh
+make doc
+```
 
 ## Releasing
 
-Builds and releases are automated with GitHub Actions and [GoReleaser](https://github.com/goreleaser/goreleaser/).
-The changelog is managed with [github-changelog-generator](https://github.com/github-changelog-generator/github-changelog-generator).
-
-Currently there are a few manual steps to this:
+Releases are fully automated via GitHub Actions and
+[GoReleaser](https://github.com/goreleaser/goreleaser/).
 
 1. Update the changelog:
 
    ```sh
-   RELEASE_VERSION=v... \
-   CHANGELOG_GITHUB_TOKEN=... \
+   RELEASE_VERSION=v1.x.y \
+   CHANGELOG_GITHUB_TOKEN=<token> \
    make changelog
    ```
 
-   This will commit the changelog locally.
-
-2. Review generated changelog and push:
-
-   View the committed changelog with `git show`. If all is well `git push origin
-   master`.
-
-3. Kick off the release:
+2. Push the changelog commit:
 
    ```sh
-   RELEASE_VERSION=v... \
-   make release
+   git push origin master
    ```
 
-   Once the command exits, you can monitor the rest of the process on the
-   [Actions UI](https://github.com/gr8-toolkit/terraform-provider-redshift/actions?query=workflow%3Arelease).
+3. Tag and push — this triggers the release workflow automatically:
 
-4. Publish release:
+   ```sh
+   RELEASE_VERSION=v1.x.y make release
+   ```
 
-   The Action creates the release, but leaves it in "draft" state. Open it up in
-   a [browser](https://github.com/gr8-toolkit/terraform-provider-redshift/releases)
-   and if all looks well, click the publish button.
+The [Release workflow](https://github.com/gr8-toolkit/terraform-provider-redshift/actions/workflows/release.yml)
+builds cross-platform binaries, signs the checksums with GPG, and publishes
+the GitHub release.
+
+## Contributing
+
+See [CONTRIBUTING.md](./CONTRIBUTING.md).
