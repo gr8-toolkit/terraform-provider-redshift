@@ -100,6 +100,13 @@ func (c *Config) connParams() []string {
 	params["sslmode"] = c.SSLMode
 	params["connect_timeout"] = "180"
 
+	// Redshift Serverless does not fully support the PostgreSQL extended query
+	// protocol. Setting binary_parameters=no forces lib/pq to use the simple
+	// query protocol, avoiding "unexpected Bind response" errors on GRANT/REVOKE.
+	if c.IsServerless {
+		params["binary_parameters"] = "no"
+	}
+
 	paramsArray := []string{}
 	for key, value := range params {
 		paramsArray = append(paramsArray, fmt.Sprintf("%s=%s", key, url.QueryEscape(value)))

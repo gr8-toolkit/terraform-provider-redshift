@@ -71,11 +71,11 @@ Optional:
 
 - `assume_role` (Block List, Max: 1) Optional assume role data used to obtain temporary credentials (see [below for nested schema](#nestedblock--temporary_credentials--assume_role))
 - `auto_create_user` (Boolean) Create a database user with the name specified for the user if one does not exist. Only applies to provisioned clusters.
-- `cluster_identifier` (String) The unique identifier of the provisioned cluster. Required when not using `workgroup_name`. This parameter is case sensitive.
+- `cluster_identifier` (String) The unique identifier of the provisioned cluster. Required when not using `workgroup_name` or `is_serverless = true`. This parameter is case sensitive.
 - `db_groups` (Set of String) A list of the names of existing database groups that the user will join for the current session. Only applies to provisioned clusters.
 - `duration_seconds` (Number) The number of seconds until the returned temporary password expires.
 - `region` (String) The AWS region where the Redshift cluster or workgroup is located.
-- `workgroup_name` (String) The name of the Redshift Serverless workgroup. Required when not using `cluster_identifier`.
+- `workgroup_name` (String) The name of the Redshift Serverless workgroup. When set, takes precedence over `is_serverless`.
 
 <a id="nestedblock--temporary_credentials--assume_role"></a>
 ### Nested Schema for `temporary_credentials.assume_role`

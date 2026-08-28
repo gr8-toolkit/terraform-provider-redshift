@@ -92,22 +92,14 @@ func Provider() *schema.Provider {
 						"cluster_identifier": {
 							Type:         schema.TypeString,
 							Optional:     true,
-							Description:  "The unique identifier of the provisioned cluster. Required when not using `workgroup_name`. This parameter is case sensitive.",
+							Description:  "The unique identifier of the provisioned cluster. Required when not using `workgroup_name` or `is_serverless = true`. This parameter is case sensitive.",
 							ValidateFunc: validation.StringLenBetween(1, 2147483647),
-							ExactlyOneOf: []string{
-								"temporary_credentials.0.cluster_identifier",
-								"temporary_credentials.0.workgroup_name",
-							},
 						},
 						"workgroup_name": {
 							Type:         schema.TypeString,
 							Optional:     true,
-							Description:  "The name of the Redshift Serverless workgroup. Required when not using `cluster_identifier`.",
+							Description:  "The name of the Redshift Serverless workgroup. When set, takes precedence over `is_serverless`.",
 							ValidateFunc: validation.StringLenBetween(1, 2147483647),
-							ExactlyOneOf: []string{
-								"temporary_credentials.0.cluster_identifier",
-								"temporary_credentials.0.workgroup_name",
-							},
 						},
 						"region": {
 							Type:        schema.TypeString,
@@ -196,7 +188,7 @@ func resolveCredentials(d *schema.ResourceData) (string, string, error) {
 	if (!ok) || username == nil {
 		return "", "", fmt.Errorf("username is required")
 	}
-	if _, useTemporaryCredentials := d.GetOk("temporary_credentials.0"); useTemporaryCredentials {
+	if v := d.Get("temporary_credentials").([]interface{}); len(v) > 0 && v[0] != nil {
 		log.Println("[DEBUG] using temporary credentials authentication")
 		dbUser, dbPassword, err := temporaryCredentials(username.(string), d)
 		log.Printf("[DEBUG] got temporary credentials with username %s\n", dbUser)
@@ -211,10 +203,19 @@ func resolveCredentials(d *schema.ResourceData) (string, string, error) {
 // temporaryCredentials dispatches to the provisioned or serverless credentials API
 // based on which identifier is configured.
 func temporaryCredentials(username string, d *schema.ResourceData) (string, string, error) {
-	if _, ok := d.GetOk("temporary_credentials.0.workgroup_name"); ok {
+	_, hasWorkgroup := d.GetOk("temporary_credentials.0.workgroup_name")
+	_, hasCluster := d.GetOk("temporary_credentials.0.cluster_identifier")
+
+	switch {
+	case hasWorkgroup:
 		return serverlessTemporaryCredentials(d)
+	case hasCluster:
+		return provisionedTemporaryCredentials(username, d)
+	default:
+		return "", "", fmt.Errorf(
+			"temporary_credentials requires either workgroup_name (Serverless) or cluster_identifier (provisioned)",
+		)
 	}
-	return provisionedTemporaryCredentials(username, d)
 }
 
 // provisionedTemporaryCredentials gets temporary credentials using
@@ -273,10 +274,11 @@ func serverlessTemporaryCredentials(d *schema.ResourceData) (string, string, err
 		return "", "", err
 	}
 	client := redshiftserverless.NewFromConfig(cfg)
-	workgroupName := d.Get("temporary_credentials.0.workgroup_name").(string)
 	input := &redshiftserverless.GetCredentialsInput{
-		WorkgroupName: aws.String(workgroupName),
-		DbName:        aws.String(d.Get("database").(string)),
+		DbName: aws.String(d.Get("database").(string)),
+	}
+	if workgroupName, ok := d.GetOk("temporary_credentials.0.workgroup_name"); ok {
+		input.WorkgroupName = aws.String(workgroupName.(string))
 	}
 	if durationSeconds, ok := d.GetOk("temporary_credentials.0.duration_seconds"); ok {
 		duration := durationSeconds.(int)
