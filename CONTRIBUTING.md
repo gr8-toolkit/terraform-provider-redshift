@@ -23,13 +23,10 @@ on every `git commit` and enforce formatting, linting, and markdownlint rules.
 ## Development workflow
 
 | Command | What it does |
-|---|---|
-| `make build` | Format, then `go install` the provider binary |
-| `make test` | Format, vet, then run unit tests (no cluster needed) |
+| --- | --- |
+| `make build` | Build the provider binary to the `./dist/` directory |
+| `make test` | Run unit tests (no cluster needed) |
 | `make testacc` | Run acceptance tests against a real Redshift cluster |
-| `make fmt` | Run `gofmt -w` on all `.go` files |
-| `make vet` | Run `go vet` |
-| `make doc` | Regenerate `docs/` from schema and `examples/` |
 | `prek run --all-files` | Run all hooks against every file |
 
 ## Running acceptance tests
@@ -58,7 +55,7 @@ export NO_PROXY=127.0.0.1,localhost
 Some tests are skipped unless these variables are set:
 
 | Variable | Feature |
-|---|---|
+| --- | --- |
 | `REDSHIFT_DATASHARE_SUPPORTED` | Datashare resources (requires RA3 instance) |
 | `REDSHIFT_DATASHARE_CONSUMER_NAMESPACE` | Datashare privilege — same-account namespace |
 | `REDSHIFT_DATASHARE_CONSUMER_ACCOUNT` | Datashare privilege — cross-account |

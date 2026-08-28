@@ -11,6 +11,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/credentials/stscreds"
 	"github.com/aws/aws-sdk-go-v2/service/redshift"
+	"github.com/aws/aws-sdk-go-v2/service/redshiftserverless"
 	"github.com/aws/aws-sdk-go-v2/service/sts"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/diag"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/schema"
@@ -81,7 +82,7 @@ func Provider() *schema.Provider {
 			"temporary_credentials": {
 				Type:        schema.TypeList,
 				Optional:    true,
-				Description: "Configuration for obtaining a temporary password using redshift:GetClusterCredentials",
+				Description: "Configuration for obtaining temporary credentials. Use `cluster_identifier` for provisioned clusters or `workgroup_name` for Redshift Serverless.",
 				MaxItems:    1,
 				ConflictsWith: []string{
 					"password",
@@ -90,26 +91,32 @@ func Provider() *schema.Provider {
 					Schema: map[string]*schema.Schema{
 						"cluster_identifier": {
 							Type:         schema.TypeString,
-							Required:     true,
-							Description:  "The unique identifier of the cluster that contains the database for which you are requesting credentials. This parameter is case sensitive.",
+							Optional:     true,
+							Description:  "The unique identifier of the provisioned cluster. Required when not using `workgroup_name` or `is_serverless = true`. This parameter is case sensitive.",
+							ValidateFunc: validation.StringLenBetween(1, 2147483647),
+						},
+						"workgroup_name": {
+							Type:         schema.TypeString,
+							Optional:     true,
+							Description:  "The name of the Redshift Serverless workgroup. When set, takes precedence over `is_serverless`.",
 							ValidateFunc: validation.StringLenBetween(1, 2147483647),
 						},
 						"region": {
 							Type:        schema.TypeString,
 							Optional:    true,
-							Description: "The AWS region where the Redshift cluster is located.",
+							Description: "The AWS region where the Redshift cluster or workgroup is located.",
 						},
 						"auto_create_user": {
 							Type:        schema.TypeBool,
 							Optional:    true,
-							Description: "Create a database user with the name specified for the user if one does not exist.",
+							Description: "Create a database user with the name specified for the user if one does not exist. Only applies to provisioned clusters.",
 							Default:     false,
 						},
 						"db_groups": {
 							Type:        schema.TypeSet,
 							Set:         schema.HashString,
 							Optional:    true,
-							Description: "A list of the names of existing database groups that the user will join for the current session, in addition to any group memberships for an existing user. If not specified, a new user is added only to PUBLIC.",
+							Description: "A list of the names of existing database groups that the user will join for the current session. Only applies to provisioned clusters.",
 							MaxItems:    2147483647,
 							Elem: &schema.Schema{
 								Type:         schema.TypeString,
@@ -181,7 +188,7 @@ func resolveCredentials(d *schema.ResourceData) (string, string, error) {
 	if (!ok) || username == nil {
 		return "", "", fmt.Errorf("username is required")
 	}
-	if _, useTemporaryCredentials := d.GetOk("temporary_credentials.0"); useTemporaryCredentials {
+	if v := d.Get("temporary_credentials").([]interface{}); len(v) > 0 && v[0] != nil {
 		log.Println("[DEBUG] using temporary credentials authentication")
 		dbUser, dbPassword, err := temporaryCredentials(username.(string), d)
 		log.Printf("[DEBUG] got temporary credentials with username %s\n", dbUser)
@@ -193,15 +200,34 @@ func resolveCredentials(d *schema.ResourceData) (string, string, error) {
 	return username.(string), password.(string), nil
 }
 
-// temporaryCredentials gets temporary credentials using GetClusterCredentials.
+// temporaryCredentials dispatches to the provisioned or serverless credentials API
+// based on which identifier is configured.
 func temporaryCredentials(username string, d *schema.ResourceData) (string, string, error) {
+	_, hasWorkgroup := d.GetOk("temporary_credentials.0.workgroup_name")
+	_, hasCluster := d.GetOk("temporary_credentials.0.cluster_identifier")
+
+	switch {
+	case hasWorkgroup:
+		return serverlessTemporaryCredentials(d)
+	case hasCluster:
+		return provisionedTemporaryCredentials(username, d)
+	default:
+		return "", "", fmt.Errorf(
+			"temporary_credentials requires either workgroup_name (Serverless) or cluster_identifier (provisioned)",
+		)
+	}
+}
+
+// provisionedTemporaryCredentials gets temporary credentials using
+// redshift:GetClusterCredentials for a provisioned cluster.
+func provisionedTemporaryCredentials(username string, d *schema.ResourceData) (string, string, error) {
 	sdkClient, err := redshiftSdkClient(d)
 	if err != nil {
 		return "", "", err
 	}
-	clusterIdentifier, clusterIdentifierIsSet := d.GetOk("temporary_credentials.0.cluster_identifier")
-	if !clusterIdentifierIsSet {
-		return "", "", fmt.Errorf("temporary_credentials not configured")
+	clusterIdentifier, ok := d.GetOk("temporary_credentials.0.cluster_identifier")
+	if !ok {
+		return "", "", fmt.Errorf("temporary_credentials.cluster_identifier is required for provisioned clusters")
 	}
 	input := &redshift.GetClusterCredentialsInput{
 		ClusterIdentifier: aws.String(clusterIdentifier.(string)),
@@ -239,10 +265,47 @@ func temporaryCredentials(username string, d *schema.ResourceData) (string, stri
 	return aws.ToString(response.DbUser), aws.ToString(response.DbPassword), nil
 }
 
+// serverlessTemporaryCredentials gets temporary credentials using
+// redshift-serverless:GetCredentials for a Serverless workgroup.
+// The database user is derived from the caller's IAM identity by the API.
+func serverlessTemporaryCredentials(d *schema.ResourceData) (string, string, error) {
+	cfg, err := loadAwsConfig(d)
+	if err != nil {
+		return "", "", err
+	}
+	client := redshiftserverless.NewFromConfig(cfg)
+	input := &redshiftserverless.GetCredentialsInput{
+		DbName: aws.String(d.Get("database").(string)),
+	}
+	if workgroupName, ok := d.GetOk("temporary_credentials.0.workgroup_name"); ok {
+		input.WorkgroupName = aws.String(workgroupName.(string))
+	}
+	if durationSeconds, ok := d.GetOk("temporary_credentials.0.duration_seconds"); ok {
+		duration := durationSeconds.(int)
+		if duration > 0 {
+			input.DurationSeconds = aws.Int32(int32(duration))
+		}
+	}
+	log.Println("[DEBUG] making redshift-serverless GetCredentials request")
+	response, err := client.GetCredentials(context.TODO(), input)
+	if err != nil {
+		return "", "", err
+	}
+	return aws.ToString(response.DbUser), aws.ToString(response.DbPassword), nil
+}
+
 func redshiftSdkClient(d *schema.ResourceData) (*redshift.Client, error) {
-	cfg, err := config.LoadDefaultConfig(context.TODO())
+	cfg, err := loadAwsConfig(d)
 	if err != nil {
 		return nil, err
+	}
+	return redshift.NewFromConfig(cfg), nil
+}
+
+func loadAwsConfig(d *schema.ResourceData) (aws.Config, error) {
+	cfg, err := config.LoadDefaultConfig(context.TODO())
+	if err != nil {
+		return aws.Config{}, err
 	}
 
 	if region := d.Get("temporary_credentials.0.region").(string); region != "" {
@@ -267,7 +330,7 @@ func redshiftSdkClient(d *schema.ResourceData) (*redshift.Client, error) {
 		stsClient := sts.NewFromConfig(cfg)
 		cfg.Credentials = stscreds.NewAssumeRoleProvider(stsClient, parsedRoleArn, opts)
 	}
-	return redshift.NewFromConfig(cfg), nil
+	return cfg, nil
 }
 
 func assumeRoleSchema() *schema.Schema {
