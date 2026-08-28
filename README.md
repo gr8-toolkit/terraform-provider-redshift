@@ -2,8 +2,8 @@
 
 [![CI](https://github.com/gr8-toolkit/terraform-provider-redshift/actions/workflows/ci.yml/badge.svg)](https://github.com/gr8-toolkit/terraform-provider-redshift/actions/workflows/ci.yml)
 [![prek](https://img.shields.io/badge/prek-enabled-brightgreen)](https://github.com/j178/prek)
-[![Terraform Registry](https://img.shields.io/badge/terraform-registry-623CE4?logo=terraform)](https://registry.terraform.io/providers/gr8-toolkit/redshift/latest/docs)
-[![OpenTofu Registry](https://img.shields.io/badge/opentofu-registry-FFDA18?logo=opentofu&logoColor=000)](https://search.opentofu.org/provider/gr8-toolkit/redshift/latest)
+[![Terraform Registry](https://img.shields.io/badge/Terraform_Registry-gr8--toolkit%2Fredshift-purple?logo=terraform)](https://registry.terraform.io/providers/gr8-toolkit/redshift/latest/docs)
+[![OpenTofu Registry](https://img.shields.io/badge/OpenTofu_Registry-gr8--toolkit%2Fredshift-orange?logo=opentofu)](https://search.opentofu.org/provider/gr8-toolkit/redshift/latest)
 
 A Terraform provider for managing [AWS Redshift](https://aws.amazon.com/redshift/) objects:
 users, groups, schemas, databases, grants, default privileges, and datashares.
